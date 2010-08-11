@@ -1,0 +1,5 @@
+VENUS
+-----
+
+A functional/logic programming logic inspired by the Mercury programming language.
+It aims to easily run on the JVM and .NET CLR.
