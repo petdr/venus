@@ -1,0 +1,38 @@
+DESIGN
+======
+
+How to represent an object
+--------------------------
+
+Here is how an object is defined.
+
+    :- type car(T) annotations [] class [
+        private engine_capacity :: int,
+        public field :: T,
+
+        % A constructor
+        (new(X:int, Y:T) = {engine_capacity = X, field = T} :-
+            true
+        )
+
+        % A method
+        (func p(_X:int, Y:T) = S:T :-
+            S = Y
+        )
+    ].
+
+How to call an object
+---------------------
+
+    :- noreorder pred main(io::di, io::uo) is det.
+
+    main(!IO) :-
+        Car = new(5, 5),
+        Car.p(5, X).
+
+Note the noreorder says that the compiler is not allowed
+to reorder any method calls in the body.
+
+Maybe to start with, we'll make all our code be noreorder?
+
+<!-- vim: set ts=4 sw=4 et: -->
