@@ -102,7 +102,7 @@ prog_var_list([Term | Terms], [ProgVar | ProgVars]) :-
 
 :- pred parse_clause_body(term::in, parse_result(goal)::out, io::di, io::uo) is det.
 
-parse_clause_body(functor(Const, Args, _Context), Result, !IO) :-
+parse_clause_body(Term @ functor(Const, Args, _Context), Result, !IO) :-
     ( Const = atom(Atom) ->
             % Parse a conjunction
         ( Atom = ",", Args = [TermA, TermB] ->
@@ -120,7 +120,13 @@ parse_clause_body(functor(Const, Args, _Context), Result, !IO) :-
 
             % Parse a unification or object call
         ; Atom = "=", Args = [TermA, TermB] ->
-            Result = ok(unify(coerce(TermA), coerce(TermB)))
+            ( parse_object_method(TermB, Method) ->
+                Result = ok(object_function_call(coerce(TermA), Method))
+            ;
+                Result = ok(unify(coerce(TermA), coerce(TermB)))
+            )
+        ; parse_object_method(Term, Method) ->
+            Result = ok(object_void_call(Method))
         ;
             Result = ok(call(Atom, list.map(coerce, Args)))
         )
@@ -130,3 +136,9 @@ parse_clause_body(functor(Const, Args, _Context), Result, !IO) :-
 parse_clause_body(variable(_Var, _Context), Result, !IO) :-
     Result = error([error("unexpected variable", 0)]).
 
+
+:- pred parse_object_method(term::in, object_method::out) is semidet.
+
+parse_object_method(functor(atom("."), Args, _Context), Method) :-
+    Args = [variable(ObjectVar, _VarContext), functor(atom(MethodName), MethodArgs, _MethodContext)],
+    Method = object_method(coerce_var(ObjectVar), MethodName, list.map(coerce, MethodArgs)).
