@@ -10,12 +10,10 @@
     --->    clause(item_clause)
     .
 
-:- type sym_name == string.
-
 :- type item_clause
     --->    clause(
                 clause_name     :: sym_name,
-                clause_vars     :: list(prog_term),
+                clause_args     :: list(prog_term),
                 clause_goal     :: goal,
                 clause_varset   :: prog_varset
             ).

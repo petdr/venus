@@ -4,17 +4,26 @@
 
 :- import_module prog_data.
 
+:- import_module list.
+:- import_module maybe.
+
 :- type hlds_goal
     --->    unify(
                 unify_lhs   :: prog_var,
                 unify_rhs   :: unify_rhs
             )
     ;       call(
-                call_name   :: string,
+                call_name   :: sym_name,
                 call_args   :: list(prog_var)
             )
     ;       conj(
                 conj_goals  :: list(hlds_goal)
+            )
+    ;       method_call(
+                method_var  :: prog_var,
+                method_name :: sym_name,
+                method_args :: list(prog_var),
+                method_ret  :: maybe(prog_var)
             )
     .
 
@@ -28,6 +37,6 @@
             ).
 
 :- type cons_id
-    --->    cons(string)
+    --->    cons(sym_name)
     ;       int_const(int)
     .
