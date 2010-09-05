@@ -21,17 +21,15 @@ main(!IO) :-
         io.see(FileName, SeeRes, !IO),
         ( SeeRes = ok,
             parse_items(Items, Errors, !IO),
+            ( Errors = [],
+                make_hlds(Items, HLDS, !IO),
 
-            %io.write(Items, !IO),
-            %io.nl(!IO),
-            io.write(Errors, !IO),
-            io.nl(!IO),
-
-            make_hlds(Items, HLDS, !IO),
-
-            io.write(HLDS, !IO),
-            io.nl(!IO)
-
+                io.write(HLDS, !IO),
+                io.nl(!IO)
+            ; Errors = [_|_],
+                io.write(Errors, !IO),
+                io.nl(!IO)
+            )
         ; SeeRes = error(Err),
             io.write(Err, !IO),
             io.nl(!IO)

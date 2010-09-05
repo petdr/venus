@@ -1,3 +1,13 @@
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+%
+% Module: make_hlds
+% Author: peter@emailross.com
+%
+% Convert the parse tree item list into the HLDS representation.
+%
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
 :- module make_hlds.
 
 :- interface.
@@ -8,6 +18,8 @@
 :- import_module io.
 :- import_module list.
 
+    % Given a list of items convert it into the HLDS representation.
+    %
 :- pred make_hlds(list(item)::in, hlds::out, io::di, io::uo) is det.
 
 :- implementation.
@@ -59,7 +71,7 @@ add_clause(clause(Name, Args, Goal, !.Varset), !HLDS) :-
 
     Arity = list.length(Args),
     ( search_name_arity(!.HLDS ^ predicate_table, Name, Arity, _CurrentPred) ->
-        error("XXX: yyy")
+        error("XXX: handle multiple clauses")
     ;
         Pred = hlds_pred(invalid_pred_id, Name, Arity, HeadVars, !.Varset, HldsGoal)
     ),
