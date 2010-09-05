@@ -4,7 +4,7 @@ LINE_WIDTH=160
 
 -include Make.params
 
-MMC_MAKE_OPTS=--grade $(GRADE) --use-grade-subdirs --max-error-line-width $(LINE_WIDTH)
+MMC_MAKE_OPTS=--grade $(GRADE) --use-grade-subdirs --halt-at-warn --max-error-line-width $(LINE_WIDTH)
 
 .PHONY: vc
 vc: Mercury.modules
@@ -23,3 +23,6 @@ Mercury.modules:
 	mmc -f `find ../src -name \*.m`
 
 
+.PHONY: tags
+tags:
+	mtags `find .. -name \*.m` `find ~/mercury-compiler-rotd-2010-07-13/library -name \*.m`
