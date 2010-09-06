@@ -4,7 +4,7 @@ LINE_WIDTH=160
 
 -include Make.params
 
-MMC_MAKE_OPTS=--grade $(GRADE) --use-grade-subdirs --halt-at-warn --max-error-line-width $(LINE_WIDTH)
+MMC_MAKE_OPTS=-j$(JOBS) --grade $(GRADE) --use-grade-subdirs --halt-at-warn --max-error-line-width $(LINE_WIDTH)
 
 .PHONY: vc
 vc: Mercury.modules
