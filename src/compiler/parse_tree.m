@@ -32,6 +32,7 @@
 :- import_module prog_data.
 
 :- import_module parser.
+:- import_module require.
 :- import_module term.
 :- import_module term_io.
 :- import_module varset.
@@ -83,7 +84,7 @@ parse_clause(Varset, HeadTerm, BodyTerm, Result, !IO) :-
     ( HeadResult = ok({Name, Args}),
         parse_clause_body(BodyTerm, BodyResult, !IO),
         ( BodyResult = ok(BodyGoal),
-            Result = ok(clause(Name, Args, BodyGoal, coerce(Varset)))
+            Result = ok(clause(sym_name([], Name), Args, BodyGoal, coerce(Varset)))
         ; BodyResult = error(Errors),
             Result = error(Errors)
         )
@@ -137,8 +138,10 @@ parse_clause_body(Term @ functor(Const, Args, _Context), Result, !IO) :-
             )
         ; parse_object_method(Term, Method) ->
             Result = ok(object_void_call(Method))
+        ; parse_qualified_name(Term, Qualifiers, Name, SymNameArgs) ->
+            Result = ok(call(sym_name(Qualifiers, Name), list.map(coerce, SymNameArgs)))
         ;
-            Result = ok(call(Atom, list.map(coerce, Args)))
+            Result = ok(call(sym_name([], Atom), list.map(coerce, Args)))
         )
     ;
         Result = error([error("expected an atom for the goal", 0)])
@@ -146,9 +149,32 @@ parse_clause_body(Term @ functor(Const, Args, _Context), Result, !IO) :-
 parse_clause_body(variable(_Var, _Context), Result, !IO) :-
     Result = error([error("unexpected variable", 0)]).
 
-
 :- pred parse_object_method(term::in, object_method::out) is semidet.
 
 parse_object_method(functor(atom("."), Args, _Context), Method) :-
     Args = [variable(ObjectVar, _VarContext), functor(atom(MethodName), MethodArgs, _MethodContext)],
-    Method = object_method(coerce_var(ObjectVar), MethodName, list.map(coerce, MethodArgs)).
+    Method = object_method(coerce_var(ObjectVar), sym_name([], MethodName), list.map(coerce, MethodArgs)).
+
+:- pred parse_qualified_name(term::in, list(string)::out, string::out, list(term)::out) is semidet.
+
+parse_qualified_name(functor(atom(Atom), Args, _Context), Qualifiers, Name, NameArgs) :-
+    ( Atom = "." ->
+        Args = [functor(ConstA, ArgsA, _), functor(atom(Name), NameArgs, _)],
+        parse_qualifiers(ConstA, ArgsA, Qualifiers)
+    ;
+        Qualifiers = [],
+        Name = Atom,
+        NameArgs = Args
+    ).
+
+:- pred parse_qualifiers(const::in, list(term)::in, list(string)::out) is semidet.
+
+parse_qualifiers(atom(Atom), Args, Qualifiers) :-
+    ( Atom = "." ->
+        Args = [functor(SubConst, SubArgs, _), functor(atom(Name), [], _)],
+        parse_qualifiers(SubConst, SubArgs, Qualifiers0),
+        Qualifiers = Qualifiers0 ++ [Name]
+    ;
+        Args = [],
+        Qualifiers = [Atom]
+    ).

@@ -21,7 +21,7 @@
 :- type goal
     --->    conj(goal, goal)
     ;       unify(prog_term, prog_term)
-    ;       call(string, list(prog_term))
+    ;       call(sym_name, list(prog_term))
     ;       object_void_call(object_method)
     ;       object_function_call(prog_term, object_method)
     .

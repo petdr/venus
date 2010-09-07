@@ -14,8 +14,6 @@
 
 %------------------------------------------------------------------------------%
 
-:- type arity == int.
-
 :- type hlds
     --->    hlds(
                 predicate_table :: predicate_table

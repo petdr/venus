@@ -159,19 +159,45 @@ term_to_shf(functor(Const, Args, _Context), Var, Goals, !Varset) :-
 :- pred unravel_functor(prog_var::in, const::in, list(prog_term)::in, list(hlds_goal)::out,
     prog_varset::in, prog_varset::out).
 
-unravel_functor(Var, Const, Args, Goals, !Varset) :-
+unravel_functor(Var, Const0, Args0, Goals, !Varset) :-
+    get_qualifiers(Const0, Args0, Qualifiers, Const, Args),
     list.map2_foldl(term_to_shf, Args, ArgVars, GoalsList, !Varset),
-    Rhs = rhs_functor(const_to_cons_id(Const), ArgVars),
+    Rhs = rhs_functor(const_to_cons_id(Qualifiers, Const), ArgVars),
     Goals = [unify(Var, Rhs) | list.condense(GoalsList)].
     
+:- pred get_qualifiers(const::in, list(prog_term)::in, list(string)::out, const::out, list(prog_term)::out) is det.
 
-:- func const_to_cons_id(const) = cons_id.
+get_qualifiers(Const0, Args0, Qualifiers, Const, Args) :-
+    ( Const0 = atom("."), Args0 = [functor(SubConst, SubArgs, _), functor(Const1, Args1, _)] ->
+        get_qualifiers_2(SubConst, SubArgs, Qualifiers),
+        Const = Const1,
+        Args = Args1
+    ;
+        Qualifiers = [],
+        Const = Const0,
+        Args = Args0
+    ).
 
-const_to_cons_id(atom(Atom)) = cons(Atom).
-const_to_cons_id(integer(Int)) = int_const(Int).
-const_to_cons_id(string(_)) = func_error("const_to_cons_id: string").
-const_to_cons_id(float(_)) = func_error("const_to_cons_id: float").
-const_to_cons_id(implementation_defined(_)) = func_error("const_to_cons_id: implementation_defined").
+:- pred get_qualifiers_2(const::in, list(prog_term)::in, list(string)::out) is det.
+
+get_qualifiers_2(Const, Args, Qualifiers) :-
+    ( Const = atom("."), Args = [functor(Const1, Args1, _), functor(atom(Name), [], _)] ->
+        get_qualifiers_2(Const1, Args1, Qualifiers0),
+        Qualifiers = Qualifiers0 ++ [Name]
+    ; Const = atom(Name), Args = [] ->
+        Qualifiers = [Name]
+    ;
+        error("get_qualifiers: parsing should pick this error up")
+    ).
+
+
+:- func const_to_cons_id(list(string), const) = cons_id.
+
+const_to_cons_id(Qualifiers, atom(Atom)) = cons(sym_name(Qualifiers, Atom)).
+const_to_cons_id(_, integer(Int)) = int_const(Int).
+const_to_cons_id(_, string(_)) = func_error("const_to_cons_id: string").
+const_to_cons_id(_, float(_)) = func_error("const_to_cons_id: float").
+const_to_cons_id(_, implementation_defined(_)) = func_error("const_to_cons_id: implementation_defined").
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
