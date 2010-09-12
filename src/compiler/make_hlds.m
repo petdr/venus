@@ -94,7 +94,7 @@ add_clause(Info, clause(Name, Args, Goal, !.Varset), !HLDS) :-
         % Convert the goal into a HLDS Goal
     goal_to_hlds_goal(Goal, HldsGoal0, !Varset),
 
-        % Now mix the goals up
+        % Now join all the goals into one body
     HeadGoals = list.condense(HeadGoalsList),
     ( HeadGoals = [] ->
         HldsGoal = HldsGoal0
