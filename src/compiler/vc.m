@@ -10,6 +10,7 @@
 
 :- import_module make_hlds.
 :- import_module parse_tree.
+:- import_module sym_name.
 
 :- import_module list.
 
@@ -18,11 +19,12 @@ main(!IO) :-
     ( Args = [],
         io.write_string("Missing file name\n", !IO)
     ; Args = [FileName | _],
+        ModuleName = file_name_to_module_name(FileName),
         io.see(FileName, SeeRes, !IO),
         ( SeeRes = ok,
             parse_items(Items, Errors, !IO),
             ( Errors = [],
-                make_hlds(Items, HLDS, !IO),
+                make_hlds(ModuleName, Items, HLDS, !IO),
 
                 io.write(HLDS, !IO),
                 io.nl(!IO)
@@ -35,3 +37,5 @@ main(!IO) :-
             io.nl(!IO)
         )
     ).
+
+

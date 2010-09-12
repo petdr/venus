@@ -13,6 +13,7 @@
 :- interface.
 
 :- import_module hlds.
+:- import_module prog_data.
 :- import_module prog_item.
 
 :- import_module io.
@@ -20,7 +21,7 @@
 
     % Given a list of items convert it into the HLDS representation.
     %
-:- pred make_hlds(list(item)::in, hlds::out, io::di, io::uo) is det.
+:- pred make_hlds(module_name::in, list(item)::in, hlds::out, io::di, io::uo) is det.
 
 :- implementation.
 
@@ -28,6 +29,7 @@
 :- import_module hlds_pred.
 :- import_module predicate_table.
 :- import_module prog_data.
+:- import_module sym_name.
 
 :- import_module maybe.
 :- import_module require.
@@ -35,22 +37,55 @@
 :- import_module term.
 :- import_module varset.
 
-make_hlds(Items, !:HLDS, !IO) :-
+:- type make_hlds_info
+    --->    make_hlds_info(
+                mi_module_name  :: module_name
+            ).
+
+make_hlds(ModuleName, Items, !:HLDS, !IO) :-
+    Info = make_hlds_info(ModuleName),
+
     init_hlds(!:HLDS),
 
+        % Process each of the declarations
+    list.foldl(process_decls(Info), Items, !HLDS),
+
         % Insert each clause into the HLDS.
-    list.foldl(process_clause_items, Items, !HLDS).
+    list.foldl(process_clause_items(Info), Items, !HLDS).
+
+
+:- pred process_decls(make_hlds_info::in, item::in, hlds::in, hlds::out) is det.
+
+process_decls(_Info, clause(_), !HLDS).
+process_decls(Info, declaration(Decl), !HLDS) :-
+    Decl = pred_decl(PredName, PredTypes, _PredTVarset),
+    Arity = list.length(PredTypes),
+
+    ( partially_qualified_sym_name_matches_module_name(Info ^ mi_module_name, PredName) ->
+        ImportStatus = is_local
+    ;
+        ImportStatus = is_imported
+    ),
+
+    Pred = hlds_pred(invalid_pred_id, PredName, Arity, ImportStatus, [], varset.init, no_goal),
+
+    set_hlds_pred(Pred, _PredId, !.HLDS ^ predicate_table, PredTable),
+    !HLDS ^ predicate_table := PredTable.
+
 
     % The pass which processes each of the clauses.
     %
-:- pred process_clause_items(item::in, hlds::in, hlds::out) is det.
+:- pred process_clause_items(make_hlds_info::in, item::in, hlds::in, hlds::out) is det.
 
-process_clause_items(clause(Clause), !HLDS) :-
-    add_clause(Clause, !HLDS).
+process_clause_items(_Info, declaration(_), !HLDS).
+process_clause_items(Info, clause(Clause), !HLDS) :-
+    add_clause(Info, Clause, !HLDS).
 
-:- pred add_clause(item_clause::in, hlds::in, hlds::out) is det.
+:- pred add_clause(make_hlds_info::in, item_clause::in, hlds::in, hlds::out) is det.
 
-add_clause(clause(Name, Args, Goal, !.Varset), !HLDS) :-
+add_clause(Info, clause(Name, Args, Goal, !.Varset), !HLDS) :-
+    FullName = fully_qualify_name(Info ^ mi_module_name, Name),
+
         % Convert each arg into a variable and set of unifications
     list.map2_foldl(term_to_shf, Args, HeadVars, HeadGoalsList, !Varset),
         
@@ -70,10 +105,19 @@ add_clause(clause(Name, Args, Goal, !.Varset), !HLDS) :-
     ),
 
     Arity = list.length(Args),
-    ( search_name_arity(!.HLDS ^ predicate_table, Name, Arity, _CurrentPred) ->
-        error("XXX: handle multiple clauses")
+
+    ( search_name_arity(!.HLDS ^ predicate_table, FullName, Arity, Pred0) ->
+        Goal0 = Pred0 ^ pred_goal,
+        ( Goal0 = no_goal,
+            Pred = ((Pred0
+                ^ pred_args := HeadVars)
+                ^ pred_varset := !.Varset)
+                ^ pred_goal := goal(HldsGoal)
+        ; Goal0 = goal(_),
+            error("XXX: don't handle multiple clauses yet.")
+        )
     ;
-        Pred = hlds_pred(invalid_pred_id, Name, Arity, HeadVars, !.Varset, HldsGoal)
+        Pred = hlds_pred(invalid_pred_id, FullName, Arity, is_local, HeadVars, !.Varset, goal(HldsGoal))
     ),
     
     set_hlds_pred(Pred, _PredId, !.HLDS ^ predicate_table, PredTable),

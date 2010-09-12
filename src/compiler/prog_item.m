@@ -8,15 +8,25 @@
 
 :- type item
     --->    clause(item_clause)
+    ;       declaration(item_declaration)
     .
 
 :- type item_clause
     --->    clause(
-                clause_name     :: sym_name,
-                clause_args     :: list(prog_term),
-                clause_goal     :: goal,
-                clause_varset   :: prog_varset
-            ).
+                clause_name         :: sym_name,
+                clause_args         :: list(prog_term),
+                clause_goal         :: goal,
+                clause_varset       :: prog_varset
+            )
+    .
+
+:- type item_declaration
+    --->    pred_decl(
+                pred_decl_name      :: sym_name,
+                pred_decl_types     :: list(prog_type),
+                pred_decl_tvarset   :: tvarset
+            )
+    .
 
 :- type goal
     --->    conj(goal, goal)

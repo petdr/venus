@@ -73,6 +73,17 @@ parse_item(Varset, Term, Result, !IO) :-
         ; ClauseResult = error(Errors),
             Result = error(Errors)
         )
+    ; Term = term.functor(term.atom(":-"), [functor(atom("pred"), [PredTerm], _)], _Context) ->
+        ( parse_qualified_name(PredTerm, Qualifiers, Name, PredArgs) ->
+            parse_type_list(PredArgs, ResultPredArgs, !IO),
+            ( ResultPredArgs = ok(Types),
+                Result = ok(declaration(pred_decl(sym_name(Qualifiers, Name), Types, coerce(Varset))))
+            ; ResultPredArgs = error(Errors),
+                Result = error(Errors)
+            )
+        ;
+            Result = error([error("pred error", 0)])
+        )
     ;
         Result = error([error("Unknown term", 0)])
     ).
@@ -178,3 +189,47 @@ parse_qualifiers(atom(Atom), Args, Qualifiers) :-
         Args = [],
         Qualifiers = [Atom]
     ).
+
+:- pred parse_type(term::in, parse_result(prog_type)::out, io::di, io::uo) is det.
+
+parse_type(variable(Var, _), ok(type_variable(coerce_var(Var))), !IO).
+parse_type(Term @ functor(_, _, _), Result, !IO) :-
+    ( parse_qualified_name(Term, Qualifiers, TypeCtor, TypeCtorArgs) ->
+        ( Qualifiers = [], TypeCtor = "int", TypeCtorArgs = [] ->
+            Result = ok(atomic_type(atomic_type_int))
+        ; Qualifiers = [], TypeCtor = "pred" ->
+            parse_type_list(TypeCtorArgs, ResultTypeList, !IO),
+            ( ResultTypeList = ok(Types),
+                Result = ok(higher_order_type(Types))
+            ; ResultTypeList = error(Errors),
+                Result = error(Errors)
+            )
+        ;
+            Result = error([error("unknown type", 0)])
+        )
+        
+    ;
+        Result = error([error("unknown type", 0)])
+    ).
+
+:- pred parse_type_list(list(term)::in, parse_result(list(prog_type))::out, io::di, io::uo) is det.
+
+parse_type_list([], ok([]), !IO).
+parse_type_list([Term | Terms], Result, !IO) :-
+    parse_type(Term, ResultTerm, !IO),
+    parse_type_list(Terms, ResultTerms, !IO),
+    ( ResultTerm = ok(Type),
+        ( ResultTerms = ok(Types),
+            Result = ok([Type | Types])
+        ; ResultTerms = error(Errors),
+            Result = error(Errors)
+        )
+    ; ResultTerm = error(Errors),
+        ( ResultTerms = ok(_),
+            Result = error(Errors)
+        ; ResultTerms = error(Errors2),
+            Result = error(Errors ++ Errors2)
+        )
+    ).
+
+

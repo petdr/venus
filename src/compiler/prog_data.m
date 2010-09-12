@@ -25,10 +25,12 @@
 
 %------------------------------------------------------------------------------%
 
+:- type module_name == list(string).
+
 :- type sym_name
     --->    sym_name(
-                module_qualifiers   :: list(string),
-                string
+                module_qualifiers   :: module_name,
+                local_name          :: string
             ).
 
 :- type arity == int.

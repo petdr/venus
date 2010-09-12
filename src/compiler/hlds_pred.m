@@ -11,6 +11,7 @@
 :- module hlds_pred.
 :- interface.
 
+:- import_module hlds.
 :- import_module hlds_goal.
 :- import_module prog_data.
 
@@ -24,10 +25,16 @@
                 pred_id     :: pred_id,
                 pred_name   :: sym_name,
                 pred_arity  :: arity,
+                pred_status :: import_status,
                 pred_args   :: list(prog_var),
                 pred_varset :: prog_varset,
-                pred_goal   :: hlds_goal        % The goal used by type checking.
+                pred_goal   :: pred_goal
             ).
+
+:- type pred_goal
+    --->    no_goal
+    ;       goal(hlds_goal)     % This is the goal before type checking
+    .
 
 :- func invalid_pred_id = pred_id.
 
