@@ -62,12 +62,14 @@ process_decls(Info, declaration(Decl), !HLDS) :-
     Arity = list.length(PredTypes),
 
     ( partially_qualified_sym_name_matches_module_name(Info ^ mi_module_name, PredName) ->
+        FullName = fully_qualify_name(Info ^ mi_module_name, PredName),
         ImportStatus = is_local
     ;
+        FullName = PredName,
         ImportStatus = is_imported
     ),
 
-    Pred = hlds_pred(invalid_pred_id, PredName, Arity, ImportStatus, [], varset.init, no_goal),
+    Pred = hlds_pred(invalid_pred_id, FullName, Arity, ImportStatus, [], varset.init, no_goal),
 
     set_hlds_pred(Pred, _PredId, !.HLDS ^ predicate_table, PredTable),
     !HLDS ^ predicate_table := PredTable.
