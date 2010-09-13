@@ -58,7 +58,7 @@ make_hlds(ModuleName, Items, !:HLDS, !IO) :-
 
 process_decls(_Info, clause(_), !HLDS).
 process_decls(Info, declaration(Decl), !HLDS) :-
-    Decl = pred_decl(PredName, PredTypes, _PredTVarset),
+    Decl = pred_decl(PredName, PredTypes, PredTVarset),
     Arity = list.length(PredTypes),
 
     ( partially_qualified_sym_name_matches_module_name(Info ^ mi_module_name, PredName) ->
@@ -69,7 +69,7 @@ process_decls(Info, declaration(Decl), !HLDS) :-
         ImportStatus = is_imported
     ),
 
-    Pred = hlds_pred(invalid_pred_id, FullName, Arity, ImportStatus, [], varset.init, no_goal),
+    Pred = hlds_pred(invalid_pred_id, FullName, Arity, ImportStatus, [], PredTVarset, varset.init, no_goal),
 
     set_hlds_pred(Pred, _PredId, !.HLDS ^ predicate_table, PredTable),
     !HLDS ^ predicate_table := PredTable.
@@ -119,7 +119,7 @@ add_clause(Info, clause(Name, Args, Goal, !.Varset), !HLDS) :-
             error("XXX: don't handle multiple clauses yet.")
         )
     ;
-        Pred = hlds_pred(invalid_pred_id, FullName, Arity, is_local, HeadVars, !.Varset, goal(HldsGoal))
+        Pred = hlds_pred(invalid_pred_id, FullName, Arity, is_local, HeadVars, varset.init, !.Varset, goal(HldsGoal))
     ),
     
     set_hlds_pred(Pred, _PredId, !.HLDS ^ predicate_table, PredTable),

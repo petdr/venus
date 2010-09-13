@@ -22,13 +22,14 @@
 
 :- type hlds_pred
     --->    hlds_pred(
-                pred_id     :: pred_id,
-                pred_name   :: sym_name,
-                pred_arity  :: arity,
-                pred_status :: import_status,
-                pred_args   :: list(prog_var),
-                pred_varset :: prog_varset,
-                pred_goal   :: pred_goal
+                pred_id         :: pred_id,
+                pred_name       :: sym_name,
+                pred_arity      :: arity,
+                pred_status     :: import_status,
+                pred_args       :: list(prog_var),
+                pred_tvarset    :: tvarset,
+                pred_varset     :: prog_varset,
+                pred_goal       :: pred_goal
             ).
 
 :- type pred_goal
