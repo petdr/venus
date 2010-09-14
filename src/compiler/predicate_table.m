@@ -22,6 +22,14 @@
 :- func predicate_table_init = predicate_table.
 
 %------------------------------------------------------------------------------%
+    
+    % Get all the pred_ids in the predicate_table.
+:- func all_pred_ids(predicate_table) = list(pred_id).
+
+    % Get all the pred_ids for all local predicates in the predicate table
+:- func all_local_pred_ids(predicate_table) = list(pred_id).
+
+%------------------------------------------------------------------------------%
 
     % Add the hlds_pred to the predicate_table.
     % If the pred_id is set to invalid_pred_id then the next available
@@ -63,6 +71,8 @@
 
 :- implementation.
 
+:- import_module hlds.
+
 :- import_module int.
 :- import_module map.
 :- import_module multi_map.
@@ -81,6 +91,17 @@
 %------------------------------------------------------------------------------%
 
 predicate_table_init = pred_table(1, map.init, map.init, map.init).
+
+%------------------------------------------------------------------------------%
+
+all_pred_ids(PredTable) = map.keys(PredTable ^ predicates).
+
+all_local_pred_ids(PredTable) = LocalPredIds :-
+    list.filter(
+        (pred(PredId::in) is semidet :-
+            Pred = lookup_pred_id(PredTable, PredId),
+            Pred ^ pred_status = is_local
+        ), all_pred_ids(PredTable), LocalPredIds).
 
 %------------------------------------------------------------------------------%
 

@@ -19,6 +19,8 @@
 
 :- import_module list.
 
+:- pred typecheck_hlds(list(error_spec)::out, hlds::in, hlds::out) is det.
+
 :- pred typecheck_pred(hlds::in, hlds_pred::in, hlds_pred::out, list(error_spec)::out) is det.
 
 %------------------------------------------------------------------------------%
@@ -31,9 +33,11 @@
 :- import_module prog_type.
 
 :- import_module bimap.
+:- import_module int.
 :- import_module map.
 :- import_module maybe.
 :- import_module require.
+:- import_module set.
 :- import_module svbimap.
 :- import_module svvarset.
 :- import_module varset.
@@ -90,7 +94,7 @@
                 constraints         :: map(type_constraint_id, type_constraint),
 
                 % Which constraints mention the given type var
-                tvar_constraints    :: map(tvar, list(type_constraint_id)),
+                tvar_constraints    :: map(tvar, set(type_constraint_id)),
 
                 % Associate a type var with a program var.
                 typevar_map         :: bimap(prog_var, tvar),
@@ -107,11 +111,32 @@
 
 %------------------------------------------------------------------------------%
 
+typecheck_hlds(Errors, !HLDS) :-
+    PredIds = all_local_pred_ids(!.HLDS ^ predicate_table),
+    list.foldl2(typecheck_one_pred, PredIds, [], Errors, !HLDS).
+    
+:- pred typecheck_one_pred(pred_id::in, list(error_spec)::in, list(error_spec)::out, hlds::in, hlds::out) is det.
+
+typecheck_one_pred(PredId, !Errors, !HLDS) :-
+    Pred0 = lookup_pred_id(!.HLDS ^ predicate_table, PredId),
+    typecheck_pred(!.HLDS, Pred0, Pred, PredErrors),
+    list.append(PredErrors, !Errors),
+    set_hlds_pred(Pred, _PredId, !.HLDS ^ predicate_table, NewPredicateTable),
+    !HLDS ^ predicate_table := NewPredicateTable.
+
 typecheck_pred(HLDS, !Pred, Errors) :-
     some [!TCI] (
         Env = _,
         Env = init_typecheck_env(HLDS),
         !:TCI = init_typecheck_info,
+
+        Goal = !.Pred ^ pred_goal,
+        ( Goal = no_goal,
+            error("XXX: there should be a goal!")
+        ; Goal = goal(HldsGoal),
+            goal_to_constraints(Env, HldsGoal, !TCI)
+        ),
+
         Errors = !.TCI ^ errors
     ).
 
@@ -173,9 +198,36 @@ pred_call_constraint(PredTable, ArgTVars, PredId, ConjConstraints, PredTVars, !T
 
 :- pred add_type_constraints(list(conj_constraints)::in, list(tvar)::in, typecheck_info::in, typecheck_info::out) is det.
 
-add_type_constraints(_Constraints, _TVars, !TCI) :-
-    % XXX FIXME
-    true.
+add_type_constraints([], _TVars, !TCI).
+add_type_constraints(Constraints @ [Single | Rest], TVars, !TCI) :-
+    ( Rest = [],
+        TypeConstraint = tc_conj(Single)
+    ; Rest = [_|_],
+        TypeConstraint = tc_disj(Constraints, no)
+    ),
+    next_type_constraint_id(TypeConstraintId, !TCI),
+
+    map.set(!.TCI ^ constraints, TypeConstraintId, TypeConstraint, NewConstraintsMap),
+    !TCI ^ constraints := NewConstraintsMap,
+
+    list.foldl(update_tvar_constraints(TypeConstraintId), TVars, !TCI).
+
+:- pred next_type_constraint_id(type_constraint_id::out, typecheck_info::in, typecheck_info::out) is det.
+
+next_type_constraint_id(type_constraint_id(Id), !TCI) :-
+    Id = !.TCI ^ next_constraint_id,
+    !TCI ^ next_constraint_id := Id + 1.
+
+:- pred update_tvar_constraints(type_constraint_id::in, tvar::in, typecheck_info::in, typecheck_info::out) is det.
+
+update_tvar_constraints(Id, TVar, !TCI) :-
+    ( map.search(!.TCI ^ tvar_constraints, TVar, Set0) ->
+        Set = set.insert(Set0, Id)
+    ;
+        Set = set([Id])
+    ),
+    map.set(!.TCI ^ tvar_constraints, TVar, Set, NewTvarConstraints),
+    !TCI ^ tvar_constraints := NewTvarConstraints.
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%

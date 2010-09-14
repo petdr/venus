@@ -8,6 +8,8 @@
 
 :- implementation.
 
+:- import_module error_util.
+:- import_module hlds.
 :- import_module make_hlds.
 :- import_module parse_tree.
 :- import_module sym_name.
@@ -25,9 +27,11 @@ main(!IO) :-
         ( SeeRes = ok,
             parse_items(Items, Errors, !IO),
             ( Errors = [],
-                make_hlds(ModuleName, Items, HLDS, !IO),
+                make_hlds(ModuleName, Items, HLDS0, !IO),
+                front_end_pass(ErrorSpecs, HLDS0, HLDS),
+                _ = HLDS,
 
-                io.write(HLDS, !IO),
+                io.write(ErrorSpecs, !IO),
                 io.nl(!IO)
             ; Errors = [_|_],
                 io.write(Errors, !IO),
@@ -39,4 +43,9 @@ main(!IO) :-
         )
     ).
 
+:- pred front_end_pass(list(error_spec)::out, hlds::in, hlds::out) is det.
+
+front_end_pass(Errors, !HLDS) :-
+    typecheck_hlds(Errors, !HLDS).
+    
 

@@ -56,6 +56,7 @@
 
 :- type atomic_type
     --->    atomic_type_int
+    ;       atomic_type_float
     .
 
     % Similar to varset.merge_subst but produces a tvar_renaming

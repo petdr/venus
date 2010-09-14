@@ -197,6 +197,8 @@ parse_type(Term @ functor(_, _, _), Result, !IO) :-
     ( parse_qualified_name(Term, Qualifiers, TypeCtor, TypeCtorArgs) ->
         ( Qualifiers = [], TypeCtor = "int", TypeCtorArgs = [] ->
             Result = ok(atomic_type(atomic_type_int))
+        ; Qualifiers = [], TypeCtor = "float", TypeCtorArgs = [] ->
+            Result = ok(atomic_type(atomic_type_float))
         ; Qualifiers = [], TypeCtor = "pred" ->
             parse_type_list(TypeCtorArgs, ResultTypeList, !IO),
             ( ResultTypeList = ok(Types),
