@@ -11,6 +11,7 @@
 :- import_module make_hlds.
 :- import_module parse_tree.
 :- import_module sym_name.
+:- import_module typecheck.
 
 :- import_module list.
 
