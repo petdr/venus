@@ -69,7 +69,7 @@ process_decls(Info, declaration(Decl), !HLDS) :-
         ImportStatus = is_imported
     ),
 
-    Pred = hlds_pred(invalid_pred_id, FullName, Arity, ImportStatus, [], PredTVarset, varset.init, no_goal),
+    Pred = hlds_pred(invalid_pred_id, FullName, Arity, ImportStatus, [], varset.init, PredTypes, PredTVarset, no_goal),
 
     set_hlds_pred(Pred, _PredId, !.HLDS ^ predicate_table, PredTable),
     !HLDS ^ predicate_table := PredTable.
@@ -119,7 +119,9 @@ add_clause(Info, clause(Name, Args, Goal, !.Varset), !HLDS) :-
             error("XXX: don't handle multiple clauses yet.")
         )
     ;
-        Pred = hlds_pred(invalid_pred_id, FullName, Arity, is_local, HeadVars, varset.init, !.Varset, goal(HldsGoal))
+        PredTypes = [],
+        TVarset = varset.init,
+        Pred = hlds_pred(invalid_pred_id, FullName, Arity, is_local, HeadVars, !.Varset, PredTypes, TVarset, goal(HldsGoal))
     ),
     
     set_hlds_pred(Pred, _PredId, !.HLDS ^ predicate_table, PredTable),
