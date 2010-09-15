@@ -150,7 +150,8 @@ typecheck_pred(HLDS, !Pred, Errors) :-
         ( Goal = no_goal,
             error("XXX: there should be a goal!")
         ; Goal = goal(HldsGoal),
-            goal_to_constraints(Env, HldsGoal, !TCI)
+            goal_to_constraints(Env, HldsGoal, !TCI),
+            solve_constraints(!.TCI ^ tvarset, !.TCI ^ tvar_constraints, !.TCI ^ constraints, _Constraints, map.init, _Domains)
         ),
 
         Errors = !.TCI ^ errors
@@ -289,8 +290,8 @@ solve_constraints(TVarset, TVarConstraints, !Constraints, !Domains) :-
     InitialDomains = !.Domains,
     
     ConstraintIds = map.keys(InitialConstraints),
-    list.foldl2(propagate(TVarset, TVarConstraints), ConstraintIds, !Constraints, !Domains),
-
+    list.filter(has_singleton_domain(!.Domains), varset.vars(TVarset), SingletonVars),
+    list.foldl3(propagate(TVarset, TVarConstraints), ConstraintIds, !Constraints, !Domains, set(SingletonVars), _),
     (
         % Failure.
         constraint_has_no_solutions(!.Domains)
@@ -314,21 +315,24 @@ constraint_has_no_solutions(Domains) :-
     list.member(domain_empty, map.values(Domains)).
 
 :- pred propagate(tvarset::in, tvar_constraints::in, type_constraint_id::in,
-    constraints::in, constraints::out, tvar_domains::in, tvar_domains::out) is det.
+    constraints::in, constraints::out, tvar_domains::in, tvar_domains::out, set(tvar)::in, set(tvar)::out) is det.
 
-propagate(TVarset, TVarConstraints, ConstraintId, !Constraints, !Domains) :-
+propagate(TVarset, TVarConstraints, ConstraintId, !Constraints, !Domains, !PropagatedTVars) :-
         % Update the domain of each variable in the constraint
     map.lookup(!.Constraints, ConstraintId, Constraint0),
     find_domain(Constraint0, Constraint, !Domains),
     svmap.det_update(ConstraintId, Constraint, !Constraints),
     
-        % For each tvar which has a singleton domain propogate
-        % that into each constraint
+        % Do propagation on every TVar with a singleton domain, which hasn't
+        % already been used to do propogation.
     TVars = tvars_in_constraint(Constraint),
     list.filter(has_singleton_domain(!.Domains), TVars, SingletonVars),
-    list.filter_map(map.search(TVarConstraints), SingletonVars, PropConstraints0),
+    ToPropagateVars = set(SingletonVars) `set.difference` !.PropagatedTVars,
+    list.filter_map(map.search(TVarConstraints), set.to_sorted_list(ToPropagateVars), PropConstraints0),
     PropConstraints = set.to_sorted_list(set.union_list(PropConstraints0)),
-    list.foldl2(propagate(TVarset, TVarConstraints), PropConstraints, !Constraints, !Domains).
+
+    !:PropagatedTVars = set(SingletonVars),
+    list.foldl3(propagate(TVarset, TVarConstraints), PropConstraints, !Constraints, !Domains, !PropagatedTVars).
 
 :- pred has_singleton_domain(tvar_domains::in, tvar::in)  is semidet.
 
