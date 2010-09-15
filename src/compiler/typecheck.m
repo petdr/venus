@@ -184,21 +184,30 @@ init_typecheck_env(HLDS) = typecheck_env(HLDS ^ predicate_table).
 
 :- pred goal_to_constraints(typecheck_env::in, hlds_goal::in, typecheck_info::in, typecheck_info::out) is det.
 
-goal_to_constraints(_Env, unify(VarA, RHS), !TCI) :-
+goal_to_constraints(Env, unify(VarA, RHS), !TCI) :-
     get_var_type(VarA, TVarA, !TCI),
     ( RHS = rhs_var(VarB),
         get_var_type(VarB, TVarB, !TCI),
         Constraints = [conj_constraints([simple(TVarA, tvar_to_type(TVarB))], active)],
         RelevantTVars = [TVarA, TVarB]
 
-    ; RHS = rhs_functor(ConsId, _Args),
+    ; RHS = rhs_functor(ConsId, Args),
         ( ConsId = int_const(_),
             Constraints = [conj_constraints([simple(TVarA, atomic_type(atomic_type_int))], active)],
             RelevantTVars = [TVarA]
 
-        ; ConsId = cons(_SymName),
-            % XXX for the moment we don't handle this case!
-            error("XXX: ConsId = cons(_)")
+        ; ConsId = cons(SymName),
+            list.map_foldl(get_var_type, Args, ArgTVars, !TCI),
+            ( SymName = sym_name([], "") ->
+                error("Handle the higher order function application case")
+            ;
+                    % Create a disjunction of all of the possible higher order types.
+                PredTable = Env ^ pred_env,
+                PredIds = search_name(PredTable, SymName),
+                list.filter_map_foldl(ho_pred_unif_constraint(PredTable, TVarA, ArgTVars),
+                    PredIds, Constraints, !TCI)
+            ),
+            RelevantTVars = [TVarA | ArgTVars]
         )
     ),
     add_type_constraints(Constraints, RelevantTVars, !TCI).
@@ -214,6 +223,30 @@ goal_to_constraints(Env, conj(Goals), !TCI) :-
 goal_to_constraints(_Env, method_call(_Var, _Name, _Args, _MaybeRet), !TCI) :-
     % XXX FIXME
     error("XXX: method_call").
+
+%------------------------------------------------------------------------------%
+
+
+    %pred plus(int, int, int) X = plus(Y) -> X = higher_order_type(int, int), Y = int
+    %
+:- pred ho_pred_unif_constraint(predicate_table::in, tvar::in, list(tvar)::in, pred_id::in, conj_constraints::out,
+    typecheck_info::in, typecheck_info::out) is semidet.
+
+ho_pred_unif_constraint(PredTable, LHSTVar, ArgTVars, PredId, ConjConstraints, !TCI) :-
+    Pred = lookup_pred_id(PredTable, PredId),
+
+    pred_renamed_apart_argtypes(Pred, !.TCI ^ tvarset, NewTVarset, PredArgTypes),
+    !TCI ^ tvarset := NewTVarset,
+
+    ( list.split_list(list.length(ArgTVars), PredArgTypes, HOArgTypes, LambdaTypes) ->
+        ArgConstraints = list.map_corresponding(func(TVar, Type) = simple(TVar, Type), ArgTVars, HOArgTypes),
+        LHSConstraint = simple(LHSTVar, higher_order_type(LambdaTypes)),
+        ConjConstraints = conj_constraints([LHSConstraint | ArgConstraints], active)
+    ;
+        % Arity less than arguments supplied
+        fail
+    ).
+
 
 %------------------------------------------------------------------------------%
 
