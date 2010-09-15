@@ -1,6 +1,7 @@
 GRADE=java
 JOBS=1
 LINE_WIDTH=160
+MERCURY_STD_LIB_DIR=
 
 -include Make.params
 
@@ -25,4 +26,4 @@ Mercury.modules:
 
 .PHONY: tags
 tags:
-	mtags `find .. -name \*.m` `find ~/mercury-compiler-rotd-2010-07-13/library -name \*.m`
+	mtags `find .. $(MERCURY_STD_LIB_DIR) -name \*.m`
