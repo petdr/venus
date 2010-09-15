@@ -33,6 +33,8 @@
 :- import_module prog_type.
 
 :- import_module bimap.
+:- import_module bool.
+:- import_module io.
 :- import_module int.
 :- import_module map.
 :- import_module maybe.
@@ -154,7 +156,13 @@ typecheck_pred(HLDS, !Pred, Errors) :-
             error("XXX: there should be a goal!")
         ; Goal = goal(HldsGoal),
             goal_to_constraints(Env, HldsGoal, !TCI),
-            solve_constraints(!.TCI ^ tvarset, !.TCI ^ tvar_constraints, !.TCI ^ constraints, _Constraints, map.init, _Domains)
+            InitDomains = map.init,
+            InitLabelling = map.init,
+            solve_constraints_with_labelling(!.TCI ^ tvarset, !.TCI ^ tvar_constraints, !.TCI ^ constraints, InitDomains, InitLabelling, Solution),
+            trace [io(!IO)] (
+                io.write(Solution, !IO),
+                io.nl(!IO)
+            )
         ),
 
         Errors = !.TCI ^ errors
@@ -167,8 +175,7 @@ typecheck_pred(HLDS, !Pred, Errors) :-
 
 init_typecheck_info = typecheck_info(map.init, map.init, bimap.init, 0, varset.init, []).
 
-:- func init_typecheck_env(hlds) = typecheck_env.
-
+:- func init_typecheck_env(hlds) = typecheck_env
 init_typecheck_env(HLDS) = typecheck_env(HLDS ^ predicate_table).
 
 %------------------------------------------------------------------------------%
@@ -287,6 +294,127 @@ update_tvar_constraints(Id, TVar, !TCI) :-
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
+
+:- type labelling == tvar_domains.
+
+:- type solution
+    --->    solution(
+                soln_domains        :: list(tvar_domains),
+                soln_constraints    :: constraints,
+                soln_succeeded      :: bool
+            ).
+                
+:- pred solve_constraints_with_labelling(tvarset::in, tvar_constraints::in,
+    constraints::in, tvar_domains::in, labelling::in, solution::out) is det.
+
+solve_constraints_with_labelling(TVarset, TVarConstraints, !.Constraints, !.Domains, Labelling, Solution) :-
+    !:Domains = map.union(domain_intersect, Labelling, !.Domains),
+    solve_constraints(TVarset, TVarConstraints, !Constraints, !Domains),
+    ( constraint_has_no_solutions(!.Domains) ->
+        SolnDomains = [!.Domains],
+        SolnConstraints = !.Constraints,
+        SolnSucceeded = no
+    ; constraint_has_multiple_solutions(!.Domains, TVar, TVarDomains) ->
+        NewLabellings = list.map(map.set(Labelling, TVar), TVarDomains),
+        list.map(solve_constraints_with_labelling(TVarset, TVarConstraints, !.Constraints, !.Domains), NewLabellings, Solutions),
+        list.filter(solution_is_valid, Solutions, ValidSolutions, InvalidSolutions),
+        ( ValidSolutions = [],
+            merge_solutions(InvalidSolutions, SolnDomains, SolnConstraints),
+            SolnSucceeded = no
+        ; ValidSolutions = [_|_],
+            merge_solutions(ValidSolutions, SolnDomains, SolnConstraints),
+            SolnSucceeded = yes
+        )
+    ;
+        SolnDomains = [!.Domains],
+        SolnConstraints = !.Constraints,
+        SolnSucceeded = yes
+    ),
+    Solution = solution(SolnDomains, SolnConstraints, SolnSucceeded).
+
+:- pred merge_solutions(list(solution)::in, list(tvar_domains)::out, constraints::out) is det.
+
+merge_solutions(Solutions, Domains, Constraints) :-
+    Domains = list.condense(list.map(func(S) = S ^ soln_domains, Solutions)),
+    RelevantConstraints = list.map(func(S) = S ^ soln_constraints, Solutions),
+    ( RelevantConstraints = [],
+        Constraints = map.init
+    ; RelevantConstraints = [R | Rs],
+        Constraints = list.foldl(map.union(merge_type_constraints), Rs, R)
+    ).
+
+    % Merges two type constraints, which should be equal except possibly
+    % for the activity of their disjuncts, into one type constraint. The
+    % disjuncts of the result constraint are active if the respective
+    % disjuncts of either input constraint are active.
+    %
+:- func merge_type_constraints(type_constraint, type_constraint) = type_constraint.
+
+merge_type_constraints(A, B) = Result :-
+    (
+        A = tc_conj(ConjA),
+        ConjsA = [ConjA]
+    ;
+        A = tc_disj(ConjsA, _)
+    ),
+    (
+        B = tc_conj(ConjB),
+        ConjsB = [ConjB]
+    ;
+        B = tc_disj(ConjsB, _)
+    ),
+    Conjs = list.map_corresponding(merge_type_constraints2, ConjsA, ConjsB),
+    ( Conjs = [SingletonConj] ->
+        Result = tc_conj(SingletonConj)
+    ; list.filter(constraint_is_active, Conjs, [SingletonConj]) ->
+        Result = tc_disj(Conjs, yes(SingletonConj))
+    ;
+        Result = tc_disj(Conjs, no)
+    ).
+
+:- func merge_type_constraints2(conj_constraints, conj_constraints) = conj_constraints.
+
+merge_type_constraints2(A, B) =
+    (
+        A ^ constraint_activity = unsatisfiable,
+        B ^ constraint_activity = unsatisfiable
+    ->
+        A
+    ;
+        A ^ constraint_activity := active
+    ).
+    
+:- pred constraint_has_multiple_solutions(tvar_domains::in, tvar::out, list(domain)::out) is semidet.
+
+constraint_has_multiple_solutions(TVarDomains, TVar, Domains) :-
+    Result = map.foldl(smallest_domain, TVarDomains, no),
+    Result = yes({_, TVar, Set}),
+    Domains = list.map(func(T) = domain_singleton(T), set.to_sorted_list(Set)).
+
+:- type smallest_domain == maybe({int, tvar, set(prog_type)}).
+
+:- func smallest_domain(tvar, domain, smallest_domain) = smallest_domain.
+
+smallest_domain(TVar, Domain, MaybeSmallest0) = MaybeSmallest :-
+    ( Domain = domain_set(Set) ->
+        Size = set.count(Set),
+        ( MaybeSmallest0 = no,
+            MaybeSmallest = yes({Size, TVar, Set})
+        ; MaybeSmallest0 = yes({SmallestSize, _, _}),
+            ( Size < SmallestSize ->
+                MaybeSmallest = yes({Size, TVar, Set})
+            ;
+                MaybeSmallest = MaybeSmallest0
+            )
+        )
+    ;
+        MaybeSmallest = MaybeSmallest0
+    ).
+
+:- pred solution_is_valid(solution::in) is semidet.
+
+solution_is_valid(Solution) :-
+    Solution ^ soln_succeeded = yes.
 
 :- pred solve_constraints(tvarset::in, tvar_constraints::in,
     constraints::in, constraints::out, tvar_domains::in, tvar_domains::out) is det.
