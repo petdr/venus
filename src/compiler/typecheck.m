@@ -175,7 +175,8 @@ typecheck_pred(HLDS, !Pred, Errors) :-
 
 init_typecheck_info = typecheck_info(map.init, map.init, bimap.init, 0, varset.init, []).
 
-:- func init_typecheck_env(hlds) = typecheck_env
+:- func init_typecheck_env(hlds) = typecheck_env.
+
 init_typecheck_env(HLDS) = typecheck_env(HLDS ^ predicate_table).
 
 %------------------------------------------------------------------------------%
