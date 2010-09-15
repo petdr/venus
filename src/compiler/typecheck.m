@@ -126,6 +126,7 @@
     .
 
 %------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
 
 typecheck_hlds(Errors, !HLDS) :-
     PredIds = all_local_pred_ids(!.HLDS ^ predicate_table),
@@ -139,6 +140,8 @@ typecheck_one_pred(PredId, !Errors, !HLDS) :-
     list.append(PredErrors, !Errors),
     set_hlds_pred(Pred, _PredId, !.HLDS ^ predicate_table, NewPredicateTable),
     !HLDS ^ predicate_table := NewPredicateTable.
+
+%------------------------------------------------------------------------------%
 
 typecheck_pred(HLDS, !Pred, Errors) :-
     some [!TCI] (
@@ -157,6 +160,18 @@ typecheck_pred(HLDS, !Pred, Errors) :-
         Errors = !.TCI ^ errors
     ).
 
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
+:- func init_typecheck_info = typecheck_info.
+
+init_typecheck_info = typecheck_info(map.init, map.init, bimap.init, 0, varset.init, []).
+
+:- func init_typecheck_env(hlds) = typecheck_env.
+
+init_typecheck_env(HLDS) = typecheck_env(HLDS ^ predicate_table).
+
+%------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
 :- pred goal_to_constraints(typecheck_env::in, hlds_goal::in, typecheck_info::in, typecheck_info::out) is det.
@@ -192,6 +207,8 @@ goal_to_constraints(_Env, method_call(_Var, _Name, _Args, _MaybeRet), !TCI) :-
     % XXX FIXME
     error("XXX: method_call").
 
+%------------------------------------------------------------------------------%
+
 :- pred pred_call_constraint(predicate_table::in, list(tvar)::in, pred_id::in,
     conj_constraints::out, list(tvar)::out, typecheck_info::in, typecheck_info::out) is det.
 
@@ -212,50 +229,6 @@ pred_call_constraint(PredTable, ArgTVars, PredId, ConjConstraints, PredTVars, !T
     PredTVars = type_list_vars(ArgTypes),
 
     ConjConstraints = conj_constraints(Constraints, active).
-
-:- pred add_type_constraints(list(conj_constraints)::in, list(tvar)::in, typecheck_info::in, typecheck_info::out) is det.
-
-add_type_constraints([], _TVars, !TCI).
-add_type_constraints(Constraints @ [Single | Rest], TVars, !TCI) :-
-    ( Rest = [],
-        TypeConstraint = tc_conj(Single)
-    ; Rest = [_|_],
-        TypeConstraint = tc_disj(Constraints, no)
-    ),
-    next_type_constraint_id(TypeConstraintId, !TCI),
-
-    map.set(!.TCI ^ constraints, TypeConstraintId, TypeConstraint, NewConstraintsMap),
-    !TCI ^ constraints := NewConstraintsMap,
-
-    list.foldl(update_tvar_constraints(TypeConstraintId), TVars, !TCI).
-
-:- pred next_type_constraint_id(type_constraint_id::out, typecheck_info::in, typecheck_info::out) is det.
-
-next_type_constraint_id(type_constraint_id(Id), !TCI) :-
-    Id = !.TCI ^ next_constraint_id,
-    !TCI ^ next_constraint_id := Id + 1.
-
-:- pred update_tvar_constraints(type_constraint_id::in, tvar::in, typecheck_info::in, typecheck_info::out) is det.
-
-update_tvar_constraints(Id, TVar, !TCI) :-
-    ( map.search(!.TCI ^ tvar_constraints, TVar, Set0) ->
-        Set = set.insert(Set0, Id)
-    ;
-        Set = set([Id])
-    ),
-    map.set(!.TCI ^ tvar_constraints, TVar, Set, NewTvarConstraints),
-    !TCI ^ tvar_constraints := NewTvarConstraints.
-
-%------------------------------------------------------------------------------%
-%------------------------------------------------------------------------------%
-
-:- func init_typecheck_info = typecheck_info.
-
-init_typecheck_info = typecheck_info(map.init, map.init, bimap.init, 0, varset.init, []).
-
-:- func init_typecheck_env(hlds) = typecheck_env.
-
-init_typecheck_env(HLDS) = typecheck_env(HLDS ^ predicate_table).
 
 %------------------------------------------------------------------------------%
 
@@ -278,6 +251,39 @@ get_var_type(Var, TVar, !TCI) :-
 :- func tvar_to_type(tvar) = prog_type.
 
 tvar_to_type(TVar) = type_variable(TVar).
+
+%------------------------------------------------------------------------------%
+
+:- pred add_type_constraints(list(conj_constraints)::in, list(tvar)::in, typecheck_info::in, typecheck_info::out) is det.
+
+add_type_constraints([], _TVars, !TCI).
+add_type_constraints(Constraints @ [Single | Rest], TVars, !TCI) :-
+    ( Rest = [],
+        TypeConstraint = tc_conj(Single)
+    ; Rest = [_|_],
+        TypeConstraint = tc_disj(Constraints, no)
+    ),
+
+    next_type_constraint_id(TypeConstraintId, !TCI),
+    !TCI ^ constraints := map.set(!.TCI ^ constraints, TypeConstraintId, TypeConstraint),
+
+    list.foldl(update_tvar_constraints(TypeConstraintId), TVars, !TCI).
+
+:- pred next_type_constraint_id(type_constraint_id::out, typecheck_info::in, typecheck_info::out) is det.
+
+next_type_constraint_id(type_constraint_id(Id), !TCI) :-
+    Id = !.TCI ^ next_constraint_id,
+    !TCI ^ next_constraint_id := Id + 1.
+
+:- pred update_tvar_constraints(type_constraint_id::in, tvar::in, typecheck_info::in, typecheck_info::out) is det.
+
+update_tvar_constraints(Id, TVar, !TCI) :-
+    ( map.search(!.TCI ^ tvar_constraints, TVar, Set0) ->
+        Set = set.insert(Set0, Id)
+    ;
+        Set = set([Id])
+    ),
+    !TCI ^ tvar_constraints := map.set(!.TCI ^ tvar_constraints, TVar, Set).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
@@ -339,11 +345,16 @@ propagate(TVarset, TVarConstraints, ConstraintId, !Constraints, !Domains, !Propa
 has_singleton_domain(Domains, TVar) :-
     Domain = tvar_domain(Domains, TVar),
     Domain = domain_singleton(_).
-    
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
+    %
+    % find_domain(!Constraint, !Domains)
+    %
+    % Given !.Constraint update the !Domains using the constraints.
+    % !:Constraint will be the constraint after marking it's individual components unsatisfiable or active.
+    %
 :- pred find_domain(type_constraint::in, type_constraint::out, tvar_domains::in, tvar_domains::out) is det.
 
 find_domain(tc_conj(!.ConjConstraints), tc_conj(!:ConjConstraints), !Domains) :-
@@ -355,7 +366,6 @@ find_domain(tc_disj(!.DisjConstraints, no), tc_disj(!:DisjConstraints, MaybeSing
         % constraint starting from the initial domain.
     list.filter(constraint_is_active, !DisjConstraints, InvalidConstraints),
     list.map2(create_domain(!.Domains), !DisjConstraints, DisjDomainsList),
-
 
         % The domain of all of the disjunctions is the union of all of the active
         % arms of the the disjunction.
@@ -380,11 +390,14 @@ find_domain(tc_disj(!.DisjConstraints, no), tc_disj(!:DisjConstraints, MaybeSing
         % Add back in the invalid constraints.
     list.append(!.DisjConstraints, InvalidConstraints, !:DisjConstraints).
 
+%------------------------------------------------------------------------------%
 
 :- pred create_domain(tvar_domains::in, conj_constraints::in, conj_constraints::out, tvar_domains::out) is det.
 
 create_domain(!.Domains, !ConjConstraints, !:Domains) :-
     find_domain_of_conj_constraints(!ConjConstraints, !Domains).
+
+%------------------------------------------------------------------------------%
     
     %
     % Find the domain of a conjunction of constraints.
@@ -409,9 +422,13 @@ find_domain_of_conj_constraints(!ConjConstraints, !Domains) :-
         )
     ).
 
+%------------------------------------------------------------------------------%
+
 :- pred find_domain_of_simple_type_constraint(simple_type_constraint::in, tvar_domains::in, tvar_domains::out) is det.
 
 find_domain_of_simple_type_constraint(simple(TVarA, type_variable(TVarB)), !Domains) :-
+        % The domain of each type variable is the intersection
+        % of the two type variables domains.
     DomainA = tvar_domain(!.Domains, TVarA),
     DomainB = tvar_domain(!.Domains, TVarB),
     Domain = domain_intersect(DomainA, DomainB),
@@ -419,11 +436,34 @@ find_domain_of_simple_type_constraint(simple(TVarA, type_variable(TVarB)), !Doma
     svmap.det_update(TVarB, Domain, !Domains).
 
 find_domain_of_simple_type_constraint(simple(TVarA, TypeA @ atomic_type(_)), !Domains) :-
+        % Restrict the domain of the type variable to be that of the atomic type.
     restrict_domain(TVarA, TypeA, !Domains).
 
 find_domain_of_simple_type_constraint(simple(TVarA, higher_order_type(Args0)), !Domains) :-
+        % For each type variable in the higher_order_type if that type variable
+        % has a singleton type then get it, then use these argument types
+        % to restrict the domain of the type variable.
     Args = list.map(find_type_of_tvar(!.Domains), Args0),
     restrict_domain(TVarA, higher_order_type(Args), !Domains).
+
+:- func find_type_of_tvar(tvar_domains, prog_type) = prog_type.
+
+find_type_of_tvar(Domains, Type) =
+    (
+        Type = type_variable(TVar),
+        map.search(Domains, TVar, domain_singleton(TVarType))
+    ->
+        TVarType
+    ;
+        Type
+    ).
+
+%------------------------------------------------------------------------------%
+
+:- pred constraint_is_active(conj_constraints::in) is semidet.
+
+constraint_is_active(ConjConstraints) :-
+    ConjConstraints ^ constraint_activity = active.
 
 :- pred simple_constaints_are_satisfiable(tvar_domains::in, list(simple_type_constraint)::in) is semidet.
 
@@ -431,6 +471,13 @@ simple_constaints_are_satisfiable(Domains, SimpleConstraints) :-
     TVars = list.condense(list.map(tvars_in_simple_constraint, SimpleConstraints)),
     DomainsList = list.map(tvar_domain(Domains), TVars),
     list.all_true(non_empty_domain, DomainsList).
+
+:- pred non_empty_domain(domain::in) is semidet.
+
+non_empty_domain(Domain) :-
+    Domain \= domain_empty.
+
+%------------------------------------------------------------------------------%
 
 :- func tvars_in_constraint(type_constraint) = list(tvar).
 
@@ -445,10 +492,7 @@ tvars_in_constraint(TypeConstraint) = list.condense(list.map(tvars_in_simple_con
 
 tvars_in_simple_constraint(simple(TVar, Type)) = [TVar | type_vars(Type)].
 
-:- pred non_empty_domain(domain::in) is semidet.
-
-non_empty_domain(Domain) :-
-    Domain \= domain_empty.
+%------------------------------------------------------------------------------%
 
 :- pred domains_unchanged(tvar_domains::in, tvar_domains::in) is semidet.
 
@@ -472,27 +516,6 @@ equal_domains(domain_singleton(TypeA), domain_singleton(TypeB)) :-
     unify_types(TypeA, TypeB, _).
 equal_domains(domain_empty, domain_empty).
 
-:- pred constraint_is_active(conj_constraints::in) is semidet.
-
-constraint_is_active(ConjConstraints) :-
-    ConjConstraints ^ constraint_activity = active.
-
-
-%------------------------------------------------------------------------------%
-%------------------------------------------------------------------------------%
-
-:- func find_type_of_tvar(tvar_domains, prog_type) = prog_type.
-
-find_type_of_tvar(Domains, Type) =
-    (
-        Type = type_variable(TVar),
-        map.search(Domains, TVar, domain_singleton(TVarType))
-    ->
-        TVarType
-    ;
-        Type
-    ).
-
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
@@ -505,6 +528,9 @@ restrict_domain(TVar, Type, !Domains) :-
     Domain = domain_intersect(tvar_domain(!.Domains, TVar), domain_singleton(Type)),
     svmap.set(TVar, Domain, !Domains).
 
+    %
+    % Find the union of two domains
+    %
 :- func domain_union(domain, domain) = domain.
 
 domain_union(domain_any, _) = domain_any.
@@ -552,6 +578,7 @@ domain_intersect(domain_singleton(_), domain_empty) = domain_empty.
 domain_intersect(domain_empty, _) = domain_empty.
 
     % The intersection of two lists of prog_types
+    % Note the lists have to be sorted.
     %
 :- func domain_list_intersect(list(prog_type), list(prog_type)) = list(prog_type).
 
