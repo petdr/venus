@@ -216,12 +216,24 @@ goal_to_constraints(Env, unify(VarA, RHS), !TCI) :-
     ),
     add_type_constraints(Constraints, RelevantTVars, !TCI).
 goal_to_constraints(Env, call(Name, Args), !TCI) :-
-    PredTable = Env ^ pred_env,
-    PredIds = search_name_arity(PredTable, Name, list.length(Args)),
-    list.map_foldl(get_var_type, Args, ArgTVars, !TCI),
-    list.map2_foldl(pred_call_constraint(PredTable, ArgTVars), PredIds, ConjConstraintsList, PredTVarsList, !TCI),
-    RelevantTVars = list.condense([ArgTVars | PredTVarsList]),
-    add_type_constraints(ConjConstraintsList, RelevantTVars, !TCI).
+    ( Name = sym_name([], "") ->
+        % Higher order call
+        ( Args = [],
+            error("XXX: no higher order argument")
+        ; Args = [HOCall | HOArgs],
+            get_var_type(HOCall, HOCallTVar, !TCI),
+            list.map_foldl(get_var_type, HOArgs, HOArgTVars, !TCI),
+            Constraints = [conj_constraints([simple(HOCallTVar, higher_order_type(list.map(tvar_to_type, HOArgTVars)))], active)],
+            RelevantTVars = [HOCallTVar | HOArgTVars]
+        )
+    ;
+        PredTable = Env ^ pred_env,
+        PredIds = search_name_arity(PredTable, Name, list.length(Args)),
+        list.map_foldl(get_var_type, Args, ArgTVars, !TCI),
+        list.map2_foldl(pred_call_constraint(PredTable, ArgTVars), PredIds, Constraints, PredTVarsList, !TCI),
+        RelevantTVars = list.condense([ArgTVars | PredTVarsList])
+    ),
+    add_type_constraints(Constraints, RelevantTVars, !TCI).
 goal_to_constraints(Env, conj(Goals), !TCI) :-
     list.foldl(goal_to_constraints(Env), Goals, !TCI).
 goal_to_constraints(_Env, method_call(_Var, _Name, _Args, _MaybeRet), !TCI) :-
