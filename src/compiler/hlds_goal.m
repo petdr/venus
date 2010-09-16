@@ -49,4 +49,5 @@
 :- type cons_id
     --->    cons(sym_name)
     ;       int_const(int)
+    ;       float_const(float)
     .

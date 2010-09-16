@@ -244,7 +244,7 @@ get_qualifiers_2(Const, Args, Qualifiers) :-
 const_to_cons_id(Qualifiers, atom(Atom)) = cons(sym_name(Qualifiers, Atom)).
 const_to_cons_id(_, integer(Int)) = int_const(Int).
 const_to_cons_id(_, string(_)) = func_error("const_to_cons_id: string").
-const_to_cons_id(_, float(_)) = func_error("const_to_cons_id: float").
+const_to_cons_id(_, float(Float)) = float_const(Float).
 const_to_cons_id(_, implementation_defined(_)) = func_error("const_to_cons_id: implementation_defined").
 
 %------------------------------------------------------------------------------%

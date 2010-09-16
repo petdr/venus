@@ -196,6 +196,10 @@ goal_to_constraints(Env, unify(VarA, RHS), !TCI) :-
             Constraints = [conj_constraints([simple(TVarA, atomic_type(atomic_type_int))], active)],
             RelevantTVars = [TVarA]
 
+        ; ConsId = float_const(_),
+            Constraints = [conj_constraints([simple(TVarA, atomic_type(atomic_type_float))], active)],
+            RelevantTVars = [TVarA]
+
         ; ConsId = cons(SymName),
             list.map_foldl(get_var_type, Args, ArgTVars, !TCI),
             ( SymName = sym_name([], "") ->
