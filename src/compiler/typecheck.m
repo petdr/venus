@@ -82,7 +82,13 @@
     --->    simple(
                 tvar,       % The variable whose type is being constrained
                 prog_type   % The type to which the variable is being assigned
-            ).
+            )
+    ;       higher_order(
+                tvar,
+                tvar,
+                list(tvar)
+            )
+    .
 
 %------------------------------------------------------------------------------%
 
@@ -203,7 +209,11 @@ goal_to_constraints(Env, unify(VarA, RHS), !TCI) :-
         ; ConsId = cons(SymName),
             list.map_foldl(get_var_type, Args, ArgTVars, !TCI),
             ( SymName = sym_name([], "") ->
-                error("Handle the higher order function application case")
+                ( ArgTVars = [TVarB | TVarBArgs] ->
+                    Constraints = [conj_constraints([higher_order(TVarA, TVarB, TVarBArgs)], active)]
+                ;
+                    error("No higher order argument")
+                )
             ;
                     % Create a disjunction of all of the possible higher order types.
                 PredTable = Env ^ pred_env,
@@ -624,6 +634,91 @@ find_domain_of_simple_type_constraint(simple(TVarA, higher_order_type(Args0)), !
     Args = list.map(find_type_of_tvar(!.Domains), Args0),
     restrict_domain(TVarA, higher_order_type(Args), !Domains).
 
+/*
+Y = int,
+
+(
+    Y = int,
+    AddOne = pred([int, int]),
+;
+    Y = float,
+    AddOne = pred([float, float])
+),
+
+AddOne = pred(AddOneArgs), *
+AddOneToX = pred(AddOneToXArgs), *
+AddOneArgs = [X | AddOneToXArgs], *
+
+AddOneToX = pred([Z]).
+*/
+    % HOArgA = HOArgB(HOArgBArgs)
+find_domain_of_simple_type_constraint(higher_order(HOArgA, HOArgB, HOArgBArgs), !Domains) :-
+    HOArgADomain = tvar_domain(!.Domains, HOArgA),
+    HOArgBDomain = tvar_domain(!.Domains, HOArgB),
+    HOArgBArgDomains = list.map(tvar_domain(!.Domains), HOArgBArgs),
+
+    (
+            % If something has domain_empty then we cannot find a domain so set all the domains
+            % to be empty.
+        list.find_first_match(unify(domain_empty), [HOArgADomain, HOArgBDomain | HOArgBArgDomains], _)
+    ->
+        svmap.det_update(HOArgA, domain_empty, !Domains),
+        svmap.det_update(HOArgB, domain_empty, !Domains),
+        !:Domains = list.foldl(func(TVar, M) = map.det_update(M, TVar, domain_empty), HOArgBArgs, !.Domains)
+    ; 
+            % All the domains must be restricted to some set.
+        xxx(HOArgADomain, HOArgATypes),
+        xxx(HOArgBDomain, HOArgBTypes),
+        list.map(xxx, HOArgBArgDomains, HOArgBArgsTypes)
+    ->
+        _Curried = cross_product(HOArgATypes, HOArgBTypes, HOArgBArgsTypes)
+    ;
+            % Something has domain_any so don't do anything
+        true
+    ).
+
+:- func cross_product(list(prog_type), list(prog_type), list(list(prog_type))) = list(curried_ho_type).
+
+cross_product(As, Bs, BArgsList) =
+    list.condense(list.map(cross_product_2(Bs, BArgsList), As)).
+
+:- func cross_product_2(list(prog_type), list(list(prog_type)), prog_type) = list(curried_ho_type).
+
+cross_product_2(Bs, BArgsList, A) =
+    list.condense(list.map(cross_product_3(A, BArgsList), Bs)).
+
+:- func cross_product_3(prog_type, list(list(prog_type)), prog_type) = list(curried_ho_type).
+
+cross_product_3(A, BArgsList, B) = Result :-
+    list.filter_map(unify_curried_higher_order_type(A, B), BArgsList, Result).
+
+
+:- type curried_ho_type
+    --->    curried_ho_type(
+                prog_type,
+                prog_type,
+                list(prog_type)
+            ).
+
+:- pred xxx(domain::in, list(prog_type)::out) is semidet.
+
+xxx(domain_set(Set), set.to_sorted_list(Set)).
+xxx(domain_singleton(Type), [Type]).
+                
+
+    % HOTypeA   =          HOTypeB(HOArgBTypes)
+    % pred(int) = pred(float, int)(float)
+:- pred unify_curried_higher_order_type(prog_type::in, prog_type::in, list(prog_type)::in, curried_ho_type::out) is semidet.
+
+unify_curried_higher_order_type(HOTypeA0, HOTypeB0, HOTypeBArgs0, curried_ho_type(HOTypeA, HOTypeB, HOTypeBArgs)) :-
+    HOTypeA0 = higher_order_type(ArgsA0),
+    HOTypeB0 = higher_order_type(ArgsB0),
+    Args0 = HOTypeBArgs0 ++ ArgsA0,
+    list.map_corresponding(unify_types, Args0, ArgsB0, ArgsB),
+    list.split_list(list.length(HOTypeBArgs0), ArgsB, HOTypeBArgs, ArgsA),
+    HOTypeA = higher_order_type(ArgsA),
+    HOTypeB = higher_order_type(ArgsB).
+
 :- func find_type_of_tvar(tvar_domains, prog_type) = prog_type.
 
 find_type_of_tvar(Domains, Type) =
@@ -669,6 +764,7 @@ tvars_in_constraint(TypeConstraint) = list.condense(list.map(tvars_in_simple_con
 :- func tvars_in_simple_constraint(simple_type_constraint) = list(tvar).
 
 tvars_in_simple_constraint(simple(TVar, Type)) = [TVar | type_vars(Type)].
+tvars_in_simple_constraint(higher_order(TVarA, TVarB, TVarBs)) = [TVarA, TVarB | TVarBs].
 
 %------------------------------------------------------------------------------%
 
@@ -704,6 +800,18 @@ equal_domains(domain_empty, domain_empty).
 
 restrict_domain(TVar, Type, !Domains) :-
     Domain = domain_intersect(tvar_domain(!.Domains, TVar), domain_singleton(Type)),
+    svmap.set(TVar, Domain, !Domains).
+
+:- pred set_domain_to_empty(tvar::in, tvar_domains::in, tvar_domains::out) is det.
+
+set_domain_to_empty(TVar, !Domains) :-
+    Domain = domain_empty,
+    svmap.set(TVar, Domain, !Domains).
+
+:- pred set_domain_to_any(tvar::in, tvar_domains::in, tvar_domains::out) is det.
+
+set_domain_to_any(TVar, !Domains) :-
+    Domain = domain_any,
     svmap.set(TVar, Domain, !Domains).
 
     %
