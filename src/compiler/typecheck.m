@@ -381,124 +381,14 @@ solve(unify(Var, Term), !Store) :-
 
 :- pred unify(term(T)::in, term(T)::in, varset(T)::in, varset(T)::out) is semidet.
 
-unify(term.variable(X, _), term.variable(Y, _), VarSet0, VarSet) :-
-    ( varset.search_var(VarSet0, X, BindingOfX) ->
-        ( varset.search_var(VarSet0, Y, BindingOfY) ->
-            % both X and Y already have bindings - just
-            % unify the terms they are bound to
-            unify(BindingOfX, BindingOfY, VarSet0, VarSet)
-        ;
-            % Y is a variable which hasn't been bound yet
-            apply_rec_substitution(BindingOfX, VarSet0, SubstBindingOfX),
-            ( SubstBindingOfX = term.variable(Y, _) ->
-                VarSet = VarSet0
-            ;
-                \+ occurs(SubstBindingOfX, Y, VarSet0),
-                varset.bind_var(VarSet0, Y, SubstBindingOfX, VarSet)
-            )
-        )
-    ;
-        ( varset.search_var(VarSet0, Y, BindingOfY2) ->
-            % X is a variable which hasn't been bound yet
-            apply_rec_substitution(BindingOfY2, VarSet0, SubstBindingOfY2),
-            ( SubstBindingOfY2 = term.variable(X, _) ->
-                VarSet = VarSet0
-            ;
-                \+ occurs(SubstBindingOfY2, X, VarSet0),
-                varset.bind_var(VarSet0, X, SubstBindingOfY2, VarSet)
-            )
-        ;
-            % both X and Y are unbound variables -
-            % bind one to the other
-            ( X = Y ->
-                VarSet = VarSet0
-            ;
-                varset.bind_var(VarSet0, X,
-                        term.variable(Y, context_init), VarSet)
-            )
-        )
-    ).
-
-unify(term.variable(X, _), term.functor(F, As, C), VarSet0, VarSet) :-
-    ( varset.search_var(VarSet0, X, BindingOfX) ->
-        unify(BindingOfX, term.functor(F, As, C), VarSet0, VarSet)
-    ;
-        \+ occurs_list(As, X, VarSet0),
-        varset.bind_var(VarSet0, X, term.functor(F, As, C), VarSet)
-    ).
-
-unify(term.functor(F, As, C), term.variable(X, _), VarSet0, VarSet) :-
-    ( varset.search_var(VarSet0, X, BindingOfX) ->
-        unify(term.functor(F, As, C), BindingOfX, VarSet0, VarSet)
-    ;
-        \+ occurs_list(As, X, VarSet0),
-        varset.bind_var(VarSet0, X, term.functor(F, As, C), VarSet)
-    ).
-
-unify(term.functor(F, AsX, _), term.functor(F, AsY, _), !VarSet) :-
-    unify_list(AsX, AsY, !VarSet).
-
-:- pred unify_list(list(term(T))::in, list(term(T))::in, varset(T)::in, varset(T)::out) is semidet.
-
-unify_list([], [], !VarSet).
-unify_list([X | Xs], [Y | Ys], !VarSet) :-
-    unify(X, Y, !VarSet),
-    unify_list(Xs, Ys, !VarSet).
-
-%------------------------------------------------------------------------------%
-
-    % occurs(Term, Var, Subst) succeeds if Term contains Var,
-    % perhaps indirectly via the substitution.  (The variable must
-    % not be mapped by the substitution.)
-
-:- pred occurs(term(T)::in, var(T)::in, varset(T)::in) is semidet.
-
-occurs(term.variable(X, _), Y, VarSet) :-
-    (
-        X = Y
-    ;
-        varset.search_var(VarSet, X, BindingOfX),
-        occurs(BindingOfX, Y, VarSet)
-    ).
-occurs(term.functor(_F, As, _), Y, VarSet) :-
-    occurs_list(As, Y, VarSet).
-
-:- pred occurs_list(list(term(T))::in, var(T)::in, varset(T)::in) is semidet.
-
-occurs_list([Term | Terms], Y, VarSet) :-
-    (
-        occurs(Term, Y, VarSet)
-    ;
-        occurs_list(Terms, Y, VarSet)
-    ).
-
-%------------------------------------------------------------------------------%
-
-%   apply_rec_substitution(Term0, VarSet, Term) :
-%       recursively apply substitution to Term0 until
-%       no more substitions can be applied, and then
-%       return the result in Term.
+unify(TermA, TermB, !Varset) :-
+    unify_term(TermA, TermB, varset.get_bindings(!.Varset), Bindings),
+    varset.set_bindings(!.Varset, Bindings, !:Varset).
 
 :- pred apply_rec_substitution(term(T)::in, varset(T)::in, term(T)::out) is det.
 
-apply_rec_substitution(V @ term.variable(Var, _), VarSet, Term) :-
-    ( varset.search_var(VarSet, Var, Replacement) ->
-        % Recursively apply the substition to the replacement.
-        apply_rec_substitution(Replacement, VarSet, Term)
-    ;
-        Term = V
-    ).
-apply_rec_substitution(term.functor(Name, Args0, Context), VarSet,
-         term.functor(Name, Args, Context)) :-
-    apply_rec_substitution_to_list(Args0, VarSet, Args).
-
-:- pred apply_rec_substitution_to_list(list(term(T))::in, varset(T)::in, list(term(T))::out) is det.
-
-apply_rec_substitution_to_list([], _VarSet, []).
-apply_rec_substitution_to_list([Term0 | Terms0], VarSet,
-        [Term | Terms]) :-
-    apply_rec_substitution(Term0, VarSet, Term),
-    apply_rec_substitution_to_list(Terms0, VarSet, Terms).
+apply_rec_substitution(Term0, Varset, Term) :-
+    apply_rec_substitution(Term0, varset.get_bindings(Varset), Term).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
