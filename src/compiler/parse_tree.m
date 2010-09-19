@@ -31,6 +31,7 @@
 
 :- import_module prog_data.
 
+:- import_module pair.
 :- import_module parser.
 :- import_module require.
 :- import_module term.
@@ -66,18 +67,18 @@ parse_items(Items, Errors, !IO) :-
 :- pred parse_item(varset::in, term::in, parse_result(item)::out, io::di, io::uo) is det.
 
 parse_item(Varset, Term, Result, !IO) :-
-    ( Term = term.functor(term.atom(":-"), [HeadTerm, BodyTerm], _Context) ->
-        parse_clause(Varset, HeadTerm, BodyTerm, ClauseResult, !IO),
+    ( Term = term.functor(term.atom(":-"), [HeadTerm, BodyTerm], Context) ->
+        parse_clause(Varset, HeadTerm, BodyTerm, Context, ClauseResult, !IO),
         ( ClauseResult = ok(Clause),
             Result = ok(clause(Clause))
         ; ClauseResult = error(Errors),
             Result = error(Errors)
         )
-    ; Term = term.functor(term.atom(":-"), [functor(atom("pred"), [PredTerm], _)], _Context) ->
+    ; Term = term.functor(term.atom(":-"), [functor(atom("pred"), [PredTerm], _)], Context) ->
         ( parse_qualified_name(PredTerm, Qualifiers, Name, PredArgs) ->
             parse_type_list(PredArgs, ResultPredArgs, !IO),
             ( ResultPredArgs = ok(Types),
-                Result = ok(declaration(pred_decl(sym_name(Qualifiers, Name), Types, coerce(Varset))))
+                Result = ok(declaration(pred_decl(sym_name(Qualifiers, Name), Types, coerce(Varset), Context)))
             ; ResultPredArgs = error(Errors),
                 Result = error(Errors)
             )
@@ -88,14 +89,15 @@ parse_item(Varset, Term, Result, !IO) :-
         Result = error([error("Unknown term", 0)])
     ).
 
-:- pred parse_clause(varset::in, term::in, term::in, parse_result(item_clause)::out, io::di, io::uo) is det.
+:- pred parse_clause(varset::in, term::in, term::in,
+    term.context::in, parse_result(item_clause)::out, io::di, io::uo) is det.
 
-parse_clause(Varset, HeadTerm, BodyTerm, Result, !IO) :-
+parse_clause(Varset, HeadTerm, BodyTerm, ClauseContext, Result, !IO) :-
     parse_clause_head(Varset, HeadTerm, HeadResult, !IO),
     ( HeadResult = ok({Name, Args}),
         parse_clause_body(BodyTerm, BodyResult, !IO),
         ( BodyResult = ok(BodyGoal),
-            Result = ok(clause(sym_name([], Name), Args, BodyGoal, coerce(Varset)))
+            Result = ok(clause(sym_name([], Name), Args, BodyGoal, coerce(Varset), ClauseContext))
         ; BodyResult = error(Errors),
             Result = error(Errors)
         )
@@ -124,7 +126,7 @@ prog_var_list([Term | Terms], [ProgVar | ProgVars]) :-
 
 :- pred parse_clause_body(term::in, parse_result(goal)::out, io::di, io::uo) is det.
 
-parse_clause_body(Term @ functor(Const, Args, _Context), Result, !IO) :-
+parse_clause_body(Term @ functor(Const, Args, Context), Result, !IO) :-
     ( Const = atom(Atom) ->
             % Parse a conjunction
         ( Atom = ",", Args = [TermA, TermB] ->
@@ -132,7 +134,7 @@ parse_clause_body(Term @ functor(Const, Args, _Context), Result, !IO) :-
             ( ResultA = ok(GoalA),
                 parse_clause_body(TermB, ResultB, !IO),
                 ( ResultB = ok(GoalB),
-                    Result = ok(conj(GoalA, GoalB))
+                    Result = ok(conj(GoalA, GoalB) - Context)
                 ; ResultB = error(Errors),
                     Result = error(Errors)
                 )
@@ -143,16 +145,16 @@ parse_clause_body(Term @ functor(Const, Args, _Context), Result, !IO) :-
             % Parse a unification or object call
         ; Atom = "=", Args = [TermA, TermB] ->
             ( parse_object_method(TermB, Method) ->
-                Result = ok(object_function_call(coerce(TermA), Method))
+                Result = ok(object_function_call(coerce(TermA), Method) - Context)
             ;
-                Result = ok(unify(coerce(TermA), coerce(TermB)))
+                Result = ok(unify(coerce(TermA), coerce(TermB)) - Context)
             )
         ; parse_object_method(Term, Method) ->
-            Result = ok(object_void_call(Method))
+            Result = ok(object_void_call(Method) - Context)
         ; parse_qualified_name(Term, Qualifiers, Name, SymNameArgs) ->
-            Result = ok(call(sym_name(Qualifiers, Name), list.map(coerce, SymNameArgs)))
+            Result = ok(call(sym_name(Qualifiers, Name), list.map(coerce, SymNameArgs)) - Context)
         ;
-            Result = ok(call(sym_name([], Atom), list.map(coerce, Args)))
+            Result = ok(call(sym_name([], Atom), list.map(coerce, Args)) - Context)
         )
     ;
         Result = error([error("expected an atom for the goal", 0)])

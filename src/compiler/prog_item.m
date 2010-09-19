@@ -5,6 +5,8 @@
 :- import_module prog_data.
 
 :- import_module list.
+:- import_module pair.
+:- import_module term.
 
 :- type item
     --->    clause(item_clause)
@@ -16,7 +18,8 @@
                 clause_name         :: sym_name,
                 clause_args         :: list(prog_term),
                 clause_goal         :: goal,
-                clause_varset       :: prog_varset
+                clause_varset       :: prog_varset,
+                clause_context      :: term.context
             )
     .
 
@@ -24,11 +27,14 @@
     --->    pred_decl(
                 pred_decl_name      :: sym_name,
                 pred_decl_types     :: list(prog_type),
-                pred_decl_tvarset   :: tvarset
+                pred_decl_tvarset   :: tvarset,
+                pred_decl_context   :: term.context
             )
     .
 
-:- type goal
+:- type goal == pair(goal_expr, term.context).
+                
+:- type goal_expr
     --->    conj(goal, goal)
     ;       unify(prog_term, prog_term)
     ;       call(sym_name, list(prog_term))

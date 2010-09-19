@@ -32,6 +32,7 @@
 :- import_module sym_name.
 
 :- import_module maybe.
+:- import_module pair.
 :- import_module require.
 :- import_module svvarset.
 :- import_module term.
@@ -58,7 +59,7 @@ make_hlds(ModuleName, Items, !:HLDS, !IO) :-
 
 process_decls(_Info, clause(_), !HLDS).
 process_decls(Info, declaration(Decl), !HLDS) :-
-    Decl = pred_decl(PredName, PredTypes, PredTVarset),
+    Decl = pred_decl(PredName, PredTypes, PredTVarset, _PredContext),
     Arity = list.length(PredTypes),
 
     ( partially_qualified_sym_name_matches_module_name(Info ^ mi_module_name, PredName) ->
@@ -85,7 +86,7 @@ process_clause_items(Info, clause(Clause), !HLDS) :-
 
 :- pred add_clause(make_hlds_info::in, item_clause::in, hlds::in, hlds::out) is det.
 
-add_clause(Info, clause(Name, Args, Goal, !.Varset), !HLDS) :-
+add_clause(Info, clause(Name, Args, Goal, !.Varset, _Context), !HLDS) :-
     FullName = fully_qualify_name(Info ^ mi_module_name, Name),
 
         % Convert each arg into a variable and set of unifications
@@ -131,7 +132,7 @@ add_clause(Info, clause(Name, Args, Goal, !.Varset), !HLDS) :-
 
 :- pred goal_to_hlds_goal(goal::in, hlds_goal::out, prog_varset::in, prog_varset::out) is det.
 
-goal_to_hlds_goal(conj(A, B), Goal, !Varset) :-
+goal_to_hlds_goal(conj(A, B) - _Context, Goal, !Varset) :-
     goal_to_hlds_goal(A, GoalA, !Varset),
     goal_to_hlds_goal(B, GoalB, !Varset),
     ( GoalA = conj(ConjGoalsA) ->
@@ -147,7 +148,7 @@ goal_to_hlds_goal(conj(A, B), Goal, !Varset) :-
             Goal = conj([GoalA, GoalB])
         )
     ).
-goal_to_hlds_goal(unify(TermA, TermB), Goal, !Varset) :-
+goal_to_hlds_goal(unify(TermA, TermB) - _Context, Goal, !Varset) :-
     ( TermA = variable(VarA, _),
         ( TermB = variable(VarB, _),
             Goal = unify(VarA, rhs_var(VarB))
@@ -166,12 +167,12 @@ goal_to_hlds_goal(unify(TermA, TermB), Goal, !Varset) :-
             Goal = conj(GoalsListA ++ GoalsListB)
         )
     ).
-goal_to_hlds_goal(call(Name, Args), Goal, !Varset) :-
+goal_to_hlds_goal(call(Name, Args) - _Context, Goal, !Varset) :-
     list.map2_foldl(term_to_shf, Args, ArgVars, GoalsList, !Varset),
     Goal = conj([call(Name, ArgVars) | list.condense(GoalsList)]).
-goal_to_hlds_goal(object_void_call(Method), Goal, !Varset) :-
+goal_to_hlds_goal(object_void_call(Method) - _Context, Goal, !Varset) :-
     method_to_goal(no, Method, Goal, !Varset).
-goal_to_hlds_goal(object_function_call(RetArg, Method), Goal, !Varset) :-
+goal_to_hlds_goal(object_function_call(RetArg, Method) - _Context, Goal, !Varset) :-
     term_to_shf(RetArg, RetVar, RetGoals, !Varset),
     method_to_goal(yes({RetVar, RetGoals}), Method, Goal, !Varset).
     
