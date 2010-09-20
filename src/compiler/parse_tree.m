@@ -93,6 +93,9 @@ parse_item(Varset, Term, Result, !IO) :-
         Result = error([error("Unknown term", 0)])
     ).
 
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
 :- pred parse_clause(varset::in, term::in, term::in,
     term.context::in, parse_result(item_clause)::out, io::di, io::uo) is det.
 
@@ -109,6 +112,8 @@ parse_clause(Varset, HeadTerm, BodyTerm, ClauseContext, Result, !IO) :-
         Result = error(Errors)
     ).
 
+%------------------------------------------------------------------------------%
+
 :- pred parse_clause_head(varset::in, term::in, parse_result({string, list(prog_term)})::out, io::di, io::uo) is det.
 
 parse_clause_head(_Varset, HeadTerm, Result, !IO) :-
@@ -120,13 +125,7 @@ parse_clause_head(_Varset, HeadTerm, Result, !IO) :-
         Result = error([error("XXX", 0)])
     ).
 
-:- pred prog_var_list(list(term)::in, list(prog_var)::out) is semidet.
-
-prog_var_list([], []).
-prog_var_list([Term | Terms], [ProgVar | ProgVars]) :-
-    Term = variable(Var, _),
-    coerce_var(Var, ProgVar),
-    prog_var_list(Terms, ProgVars).
+%------------------------------------------------------------------------------%
 
 :- pred parse_clause_body(term::in, parse_result(goal)::out, io::di, io::uo) is det.
 
@@ -166,11 +165,16 @@ parse_clause_body(Term @ functor(Const, Args, Context), Result, !IO) :-
 parse_clause_body(variable(_Var, _Context), Result, !IO) :-
     Result = error([error("unexpected variable", 0)]).
 
+%------------------------------------------------------------------------------%
+
 :- pred parse_object_method(term::in, object_method::out) is semidet.
 
 parse_object_method(functor(atom("."), Args, _Context), Method) :-
     Args = [variable(ObjectVar, _VarContext), functor(atom(MethodName), MethodArgs, _MethodContext)],
     Method = object_method(coerce_var(ObjectVar), sym_name([], MethodName), list.map(coerce, MethodArgs)).
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
 
 :- pred parse_qualified_name(term::in, list(string)::out, string::out, list(term)::out) is semidet.
 
@@ -196,6 +200,9 @@ parse_qualifiers(atom(Atom), Args, Qualifiers) :-
         Qualifiers = [Atom]
     ).
 
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
 :- pred parse_type(term::in, parse_result(prog_type)::out, io::di, io::uo) is det.
 
 parse_type(variable(Var, _), ok(type_variable(coerce_var(Var))), !IO).
@@ -220,6 +227,8 @@ parse_type(Term @ functor(_, _, _), Result, !IO) :-
         Result = error([error("unknown type", 0)])
     ).
 
+%------------------------------------------------------------------------------%
+
 :- pred parse_type_list(list(term)::in, parse_result(list(prog_type))::out, io::di, io::uo) is det.
 
 parse_type_list([], ok([]), !IO).
@@ -240,4 +249,16 @@ parse_type_list([Term | Terms], Result, !IO) :-
         )
     ).
 
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
 
+:- pred prog_var_list(list(term)::in, list(prog_var)::out) is semidet.
+
+prog_var_list([], []).
+prog_var_list([Term | Terms], [ProgVar | ProgVars]) :-
+    Term = variable(Var, _),
+    coerce_var(Var, ProgVar),
+    prog_var_list(Terms, ProgVars).
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
