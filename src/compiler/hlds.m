@@ -14,13 +14,17 @@
 
 :- interface.
 
+:- import_module hlds_data.
 :- import_module predicate_table.
 
 %------------------------------------------------------------------------------%
 
 :- type hlds
     --->    hlds(
-                predicate_table :: predicate_table
+                predicate_table :: predicate_table,
+                cons_table      :: cons_table,
+                type_index      :: type_index,
+                type_table      :: type_table
             ).
 
 %------------------------------------------------------------------------------%
@@ -39,12 +43,17 @@
 
 :- implementation.
 
+:- import_module index.
 :- import_module int.
+:- import_module map.
 
 init_hlds(HLDS) :-
     HLDS = 
         hlds(
-            predicate_table_init
+            predicate_table_init,
+            index.init,
+            index.init,
+            map.init
         ).
 
 %------------------------------------------------------------------------------%

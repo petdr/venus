@@ -18,6 +18,7 @@
 
 :- import_module prog_data.
 
+:- import_module index.
 :- import_module list.
 :- import_module maybe.
 
@@ -55,3 +56,13 @@
     ;       int_const(int)
     ;       float_const(float)
     .
+
+:- instance index_key(cons_id).
+
+:- implementation.
+
+:- instance index_key(cons_id) where [
+    (smaller_key(cons(!.SymName), cons(!:SymName)) :-
+        smaller_key(!SymName)
+    )
+].

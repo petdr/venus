@@ -14,6 +14,7 @@
 
 :- interface.
 
+:- import_module index.
 :- import_module list.
 :- import_module map.
 :- import_module term.
@@ -43,6 +44,10 @@
 :- type sym_name_and_arity
     --->    sym_name / arity.
 
+:- type type_ctor
+    --->    type_ctor(sym_name, arity).
+
+:- instance index_key(sym_name).
 
 %------------------------------------------------------------------------------%
 
@@ -74,6 +79,12 @@
 %------------------------------------------------------------------------------%
 
 :- implementation.
+
+:- instance index_key(sym_name) where [
+    (smaller_key(sym_name([_Q | Qs], Name), sym_name(Qs, Name)))
+].
+
+%------------------------------------------------------------------------------%
 
 :- import_module compiler_util.
 

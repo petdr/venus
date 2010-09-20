@@ -29,12 +29,15 @@
 
 :- implementation.
 
+:- import_module hlds_data.
 :- import_module hlds_goal.
 :- import_module hlds_pred.
 :- import_module predicate_table.
 :- import_module prog_data.
 :- import_module sym_name.
 
+:- import_module index.
+:- import_module map.
 :- import_module maybe.
 :- import_module pair.
 :- import_module require.
@@ -46,6 +49,8 @@
     --->    make_hlds_info(
                 mi_module_name  :: module_name
             ).
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
 
 make_hlds(ModuleName, Items, !:HLDS, !IO) :-
     Info = make_hlds_info(ModuleName),
@@ -58,28 +63,76 @@ make_hlds(ModuleName, Items, !:HLDS, !IO) :-
         % Insert each clause into the HLDS.
     list.foldl(process_clause_items(Info), Items, !HLDS).
 
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
 
 :- pred process_decls(make_hlds_info::in, item::in, hlds::in, hlds::out) is det.
 
 process_decls(_Info, clause(_), !HLDS).
-process_decls(_Info, type_defn(_), !HLDS).
+process_decls(Info, type_defn(T), !HLDS) :-
+    T = type_defn(Name, Params, TVarset, Body, Context),
+
+    get_name_and_status(Info, Name, FullName, ImportStatus),
+
+    Arity = list.length(Params),
+    TypeCtor = type_ctor(FullName, Arity),
+
+        % XXX the type is in the module determined by get_name_and_status.
+    InfoForType = Info ^ mi_module_name := FullName ^ module_qualifiers,
+    process_type_body(InfoForType, TypeCtor, Params, TVarset, Body, TypeBody, !HLDS),
+
+    TypeDefn = hlds_type_defn(TypeCtor, Params, TVarset, ImportStatus, TypeBody, Context),
+
+    index.set(FullName, TypeCtor, !.HLDS ^ type_index, TypeIndex),
+    !HLDS ^ type_index := TypeIndex,
+
+    map.set(!.HLDS ^ type_table, TypeCtor, TypeDefn, TypeTable),
+    !HLDS ^ type_table := TypeTable.
+
 process_decls(Info, pred_decl(PredDecl), !HLDS) :-
     PredDecl = pred_decl(PredName, PredTypes, PredTVarset, _PredContext),
     Arity = list.length(PredTypes),
 
-    ( partially_qualified_sym_name_matches_module_name(Info ^ mi_module_name, PredName) ->
-        FullName = fully_qualify_name(Info ^ mi_module_name, PredName),
-        ImportStatus = is_local
-    ;
-        FullName = PredName,
-        ImportStatus = is_imported
-    ),
+    get_name_and_status(Info, PredName, FullName, ImportStatus),
 
     Pred = hlds_pred(invalid_pred_id, FullName, Arity, ImportStatus, [], varset.init, PredTypes, PredTVarset, no_goal),
 
     set_hlds_pred(Pred, _PredId, !.HLDS ^ predicate_table, PredTable),
     !HLDS ^ predicate_table := PredTable.
 
+:- pred get_name_and_status(make_hlds_info::in, sym_name::in, sym_name::out, import_status::out) is det.
+
+get_name_and_status(Info, Name, FullName, ImportStatus) :-
+    ( partially_qualified_sym_name_matches_module_name(Info ^ mi_module_name, Name) ->
+        FullName = fully_qualify_name(Info ^ mi_module_name, Name),
+        ImportStatus = is_local
+    ;
+            % XXX This is a hack to mark incompatible names as coming from a different
+            % module.  This allows us to test using just one file.
+        FullName = Name,
+        ImportStatus = is_imported
+    ).
+
+:- pred process_type_body(make_hlds_info::in, type_ctor::in, list(type_param)::in, tvarset::in,
+    item_type_body::in, hlds_type_body::out, hlds::in, hlds::out) is det.
+
+process_type_body(Info, TypeCtor, Params, TVarset, discriminated_union(Ds), hlds_du_type(Constructors), !HLDS) :-
+    list.map_foldl(process_data_constructor(Info, TypeCtor, Params, TVarset), Ds, Constructors, !HLDS).
+
+:- pred process_data_constructor(make_hlds_info::in, type_ctor::in, list(type_param)::in, tvarset::in,
+    item_data_constructor::in, constructor::out, hlds::in, hlds::out) is det.
+
+process_data_constructor(Info, TypeCtor, Params, TVarset, data_constructor(Name, Args, Context), Constructor, !HLDS) :-
+    get_name_and_status(Info, Name, FullName, _ImportStatus),
+    Constructor = constructor(FullName, Args),
+
+    ConsId = cons(FullName),
+    ConsDefn = hlds_cons_defn(ConsId, TypeCtor, Params, TVarset, Args, Context),
+    add_hlds_cons_defn_to_cons_table(ConsDefn, !.HLDS ^ cons_table, ConsTable),
+    !HLDS ^ cons_table := ConsTable.
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
 
     % The pass which processes each of the clauses.
     %
