@@ -119,11 +119,17 @@ typecheck_pred(HLDS, !Pred, Errors) :-
         ( Goal = no_goal,
             error("XXX: there should be a goal!")
         ; Goal = goal(HldsGoal),
-            list.map_foldl(get_var_type, !.Pred ^ pred_args, ArgTVars, !TCI),
             pred_renamed_apart_argtypes(!.Pred, !.TCI ^ tvarset, NewTVarset, PredArgTypes),
             !TCI ^ tvarset := NewTVarset,
 
-            ArgConstraints = list.map_corresponding(unify_constraint, ArgTVars, PredArgTypes),
+                % Do we have a predicate declaration for the types.
+            ( list.length(PredArgTypes) : int = list.length(!.Pred ^ pred_args) ->
+                list.map_foldl(get_var_type, !.Pred ^ pred_args, ArgTVars, !TCI),
+                ArgConstraints = list.map_corresponding(unify_constraint, ArgTVars, PredArgTypes)
+            ;
+                ArgConstraints = []
+            ),
+
             goal_to_constraint(Env, HldsGoal, GoalConstraint, !TCI),
 
             Constraint = maybe_to_conj(ArgConstraints ++ [GoalConstraint]),
