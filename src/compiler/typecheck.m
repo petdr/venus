@@ -51,6 +51,7 @@
 :- import_module svmap.
 :- import_module svvarset.
 :- import_module term.
+:- import_module term_io.
 :- import_module varset.
 
 %------------------------------------------------------------------------------%
@@ -65,6 +66,9 @@
     --->    typecheck_info(
                 % Associate a type var with a program var.
                 prog_var_to_tvar    :: prog_var_to_tvar,
+
+                % The program variable varset
+                prog_varset         :: prog_varset,
 
                 % The set of all type vars
                 tvarset             :: tvarset,
@@ -109,7 +113,7 @@ typecheck_pred(HLDS, !Pred, Errors) :-
     some [!TCI] (
         Env = _,
         Env = init_typecheck_env(HLDS),
-        !:TCI = init_typecheck_info,
+        !:TCI = init_typecheck_info(!.Pred ^ pred_varset),
 
         Goal = !.Pred ^ pred_goal,
         ( Goal = no_goal,
@@ -118,6 +122,7 @@ typecheck_pred(HLDS, !Pred, Errors) :-
             goal_to_constraint(Env, HldsGoal, Constraint, !TCI),
             solutions(solve(Constraint, !.TCI ^ tvarset), Solns),
             trace [io(!IO)] (
+                output_constraint(!.TCI, Constraint, !IO),
                 list.foldl(output_varset(!.TCI ^ prog_var_to_tvar, !.Pred ^ pred_varset), Solns, !IO),
                 io.nl(!IO)
             )
@@ -128,7 +133,7 @@ typecheck_pred(HLDS, !Pred, Errors) :-
 :- pred output_varset(prog_var_to_tvar::in, prog_varset::in, tvarset::in, io::di, io::uo) is det.
 
 output_varset(Map, ProgVarset, TVarset, !IO) :-
-    io.write_string("*** Solution ***\n", !IO),
+    io.write_string("\n*** Solution ***\n", !IO),
     list.foldl(output_var(Map, ProgVarset, TVarset), varset.vars(TVarset), !IO).
 
 :- pred output_var(prog_var_to_tvar::in, prog_varset::in, tvarset::in, tvar::in, io::di, io::uo) is det.
@@ -143,10 +148,10 @@ output_var(Map, ProgVarset, TVarset, TVar, !IO) :-
             io.write_string(varset.lookup_name(TVarset, TVar), !IO)
         ),
         io.write_string(" => ", !IO),
-        ( type_term_to_prog_type(TypeTerm, Type) ->
-            io.write(Type, !IO)
-        ; type_term_to_prog_type_list(TypeTerm, TypeList) ->
+        ( type_term_to_prog_type_list(TypeTerm, TypeList) ->
             io.write(TypeList, !IO)
+        ; type_term_to_prog_type(TypeTerm, Type) ->
+            io.write(Type, !IO)
         ;
             io.write_string("unknown", !IO)
         ),
@@ -158,9 +163,9 @@ output_var(Map, ProgVarset, TVarset, TVar, !IO) :-
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
-:- func init_typecheck_info = typecheck_info.
+:- func init_typecheck_info(prog_varset) = typecheck_info.
 
-init_typecheck_info = typecheck_info(bimap.init, varset.init, []).
+init_typecheck_info(ProgVarset) = typecheck_info(bimap.init, ProgVarset, varset.init, []).
 
 :- func init_typecheck_env(hlds) = typecheck_env.
 
@@ -189,10 +194,10 @@ goal_to_constraint(Env, unify(VarA, RHS), Constraint, !TCI) :-
             list.map_foldl(get_var_type, Args, ArgTVars, !TCI),
             ( SymName = sym_name([], "") ->
                 ( ArgTVars = [HOCallTVar | HOArgTVars] ->
-                    svvarset.new_var(ArgListVar, !.TCI ^ tvarset, TVarset),
+                    svvarset.new_uniquely_named_var("ArgList", ArgListVar, !.TCI ^ tvarset, TVarset),
                     !TCI ^ tvarset := TVarset,
-                    C1 = unify(TVarA, functor("pred", [var(ArgListVar)])),
-                    C2 = unify(HOCallTVar, functor("pred", [list(HOArgTVars, ArgListVar)])),
+                    C1 = unify(TVarA, functor(ho_type_name, [var(ArgListVar)])),
+                    C2 = unify(HOCallTVar, functor(ho_type_name, [list(HOArgTVars, ArgListVar)])),
                     Constraint = conj([C1, C2])
                 ;
                     error("XXX: no higher order argument")
@@ -322,7 +327,7 @@ get_var_type(Var, TVar, !TCI) :-
     ( bimap.search(!.TCI ^ prog_var_to_tvar, Var, TVar0) ->
         TVar = TVar0
     ;
-        svvarset.new_var(TVar, !.TCI ^ tvarset, TVarset),
+        svvarset.new_named_var(varset.lookup_name(!.TCI ^ prog_varset, Var), TVar, !.TCI ^ tvarset, TVarset),
         !TCI ^ tvarset := TVarset,
         svbimap.det_insert(Var, TVar, !.TCI ^ prog_var_to_tvar, ProgVarToTVar),
         !TCI ^ prog_var_to_tvar := ProgVarToTVar
@@ -339,11 +344,14 @@ prog_type_to_type_term(defined_type(sym_name(_Qualifiers, Name), Args)) = functo
 
 :- func pred_typevars(list(tvar)) = type_term.
 
-pred_typevars(TVars) = functor("pred", [list(list.map(var, TVars))]).
+pred_typevars(TVars) = functor(ho_type_name, [list(list.map(var, TVars))]).
 
 :- func pred_types(list(prog_type)) = type_term.
 
-pred_types(Types) = functor("pred", [list(list.map(prog_type_to_type_term, Types))]).
+pred_types(Types) = functor(ho_type_name, [list(list.map(prog_type_to_type_term, Types))]).
+
+:- func ho_type_name = string.
+ho_type_name = "$pred$".
 
 :- func int = type_term.
 
@@ -384,7 +392,7 @@ type_term_to_prog_type_list(functor(atom("[|]"), [Head, Tail], _), [Type | Types
 
 type_term_to_prog_type(term.variable(TVar, _), type_variable(TVar)).
 type_term_to_prog_type(term.functor(atom(Atom), Args, _), Type) :-
-    ( Atom = "pred", Args = [Arg] ->
+    ( Atom = ho_type_name, Args = [Arg] ->
         type_term_to_prog_type_list(Arg, Types),
         Type = higher_order_type(Types)
     ; Atom = "int", Args = [] ->
@@ -427,6 +435,114 @@ unify(TermA, TermB, !Varset) :-
 
 apply_rec_substitution(Term0, Varset, Term) :-
     apply_rec_substitution(Term0, varset.get_bindings(Varset), Term).
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
+    % Take a constraint and flatten all the disjunctions and conjunctions.
+:- func flatten(constraint) = constraint.
+
+flatten(conj(Gs)) = conj(list.reverse(list.foldl(flatten_conj, Gs, []))).
+flatten(disj(Gs)) = disj(list.reverse(list.foldl(flatten_disj, Gs, []))).
+flatten(C @ unify(_, _)) = C.
+
+:- func flatten_conj(constraint, list(constraint)) = list(constraint).
+
+flatten_conj(C0, !.Gs) = !:Gs :-
+    C = flatten(C0),
+    ( C = conj(Cs) ->
+        list.append(Cs, !Gs)
+    ;
+        list.append([C], !Gs)
+    ).
+
+:- func flatten_disj(constraint, list(constraint)) = list(constraint).
+
+flatten_disj(C0, !.Gs) = !:Gs :-
+    C = flatten(C0),
+    ( C = disj(Cs) ->
+        list.append(Cs, !Gs)
+    ;
+        list.append([C], !Gs)
+    ).
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
+:- pred output_constraint(typecheck_info::in, constraint::in, io::di, io::uo) is det.
+
+output_constraint(Info, Constraint, !IO) :-
+    io.write_string("*** Constraint ***", !IO),
+    output_constraint_2(0, Info, flatten(Constraint), !IO),
+    io.nl(!IO).
+
+%------------------------------------------------------------------------------%
+
+:- pred output_constraint_2(int::in, typecheck_info::in, constraint::in, io::di, io::uo) is det.
+
+output_constraint_2(Indent, Info, conj(Cs), !IO) :-
+    ( Cs = [],
+        output_indent(Indent, !IO),
+        io.write_string("true", !IO)
+    ; Cs = [H | T],
+        output_constraint_2(Indent, Info, H, !IO),
+        output_constraint_list(Indent, Info, conj_sep, T, !IO)
+    ).
+output_constraint_2(Indent, Info, disj(Cs), !IO) :-
+    ( Cs = [],
+        output_indent(Indent, !IO),
+        io.write_string("fail", !IO)
+    ; Cs = [H|T],
+        output_indent(Indent, !IO),
+        io.write_string("(", !IO),
+        output_constraint_2(Indent + 1, Info, H, !IO),
+        output_constraint_list(Indent + 1, Info, disj_sep, T, !IO),
+        output_indent(Indent, !IO),
+        io.write_string(")", !IO)
+    ).
+output_constraint_2(Indent, Info, unify(TVar, Term), !IO) :-
+    output_indent(Indent, !IO),
+    term_io.write_term(Info ^ tvarset, variable(TVar, context_init), !IO),
+    io.write_string(" = ", !IO),
+    term_io.write_term(Info ^ tvarset, Term, !IO).
+
+%------------------------------------------------------------------------------%
+
+:- type sep
+    --->    conj_sep
+    ;       disj_sep
+    .
+
+:- pred output_constraint_list(int::in, typecheck_info::in, sep::in, list(constraint)::in, io::di, io::uo) is det.
+
+output_constraint_list(_Indent, _Info, _Sep, [], !IO).
+output_constraint_list(Indent, Info, Sep, [C | Cs], !IO) :-
+    ( Sep = conj_sep,
+        io.write_string(",", !IO)
+    ; Sep = disj_sep,
+        output_indent(Indent - 1, !IO),
+        io.write_string(";", !IO)
+    ),
+    output_constraint_2(Indent, Info, C, !IO),
+    output_constraint_list(Indent, Info, Sep, Cs, !IO).
+
+%------------------------------------------------------------------------------%
+
+:- pred output_indent(int::in, io::di, io::uo) is det.
+
+output_indent(N, !IO) :-
+    io.nl(!IO),
+    output_indent_2(N, !IO).
+
+:- pred output_indent_2(int::in, io::di, io::uo) is det.
+
+output_indent_2(N, !IO) :-
+    ( N > 0 ->
+        io.write_string(" ", !IO),
+        output_indent_2(N - 1, !IO)
+    ;
+        true
+    ).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
