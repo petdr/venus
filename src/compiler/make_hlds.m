@@ -62,8 +62,8 @@ make_hlds(ModuleName, Items, !:HLDS, !IO) :-
 :- pred process_decls(make_hlds_info::in, item::in, hlds::in, hlds::out) is det.
 
 process_decls(_Info, clause(_), !HLDS).
-process_decls(Info, declaration(Decl), !HLDS) :-
-    Decl = pred_decl(PredName, PredTypes, PredTVarset, _PredContext),
+process_decls(Info, pred_decl(PredDecl), !HLDS) :-
+    PredDecl = pred_decl(PredName, PredTypes, PredTVarset, _PredContext),
     Arity = list.length(PredTypes),
 
     ( partially_qualified_sym_name_matches_module_name(Info ^ mi_module_name, PredName) ->
@@ -84,7 +84,7 @@ process_decls(Info, declaration(Decl), !HLDS) :-
     %
 :- pred process_clause_items(make_hlds_info::in, item::in, hlds::in, hlds::out) is det.
 
-process_clause_items(_Info, declaration(_), !HLDS).
+process_clause_items(_Info, pred_decl(_), !HLDS).
 process_clause_items(Info, clause(Clause), !HLDS) :-
     add_clause(Info, Clause, !HLDS).
 

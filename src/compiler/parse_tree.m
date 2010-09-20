@@ -82,7 +82,7 @@ parse_item(Varset, Term, Result, !IO) :-
         ( parse_qualified_name(PredTerm, Qualifiers, Name, PredArgs) ->
             parse_type_list(PredArgs, ResultPredArgs, !IO),
             ( ResultPredArgs = ok(Types),
-                Result = ok(declaration(pred_decl(sym_name(Qualifiers, Name), Types, coerce(Varset), Context)))
+                Result = ok(pred_decl(pred_decl(sym_name(Qualifiers, Name), Types, coerce(Varset), Context)))
             ; ResultPredArgs = error(Errors),
                 Result = error(Errors)
             )

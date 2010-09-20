@@ -14,7 +14,7 @@
 
 :- type item
     --->    clause(item_clause)
-    ;       declaration(item_declaration)
+    ;       pred_decl(item_pred_decl)
     .
 
 :- type item_clause
@@ -27,7 +27,7 @@
             )
     .
 
-:- type item_declaration
+:- type item_pred_decl
     --->    pred_decl(
                 pred_decl_name      :: sym_name,
                 pred_decl_types     :: list(prog_type),
