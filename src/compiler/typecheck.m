@@ -31,6 +31,7 @@
 
 :- implementation.
 
+:- import_module hlds_data.
 :- import_module hlds_goal.
 :- import_module predicate_table.
 :- import_module prog_data.
@@ -38,8 +39,9 @@
 
 :- import_module bimap.
 :- import_module bool.
-:- import_module io.
+:- import_module index.
 :- import_module int.
+:- import_module io.
 :- import_module map.
 :- import_module maybe.
 :- import_module require.
@@ -55,6 +57,7 @@
 
 :- type typecheck_env
     --->    typecheck_env(
+                func_env    :: cons_table,
                 pred_env    :: predicate_table
             ).
 
@@ -195,11 +198,16 @@ goal_to_constraint(Env, unify(VarA, RHS), Constraint, !TCI) :-
                     error("XXX: no higher order argument")
                 )
             ;
+                    % Lookup the cons_table to find all possible 
+                ConsTable = Env ^ func_env,
+                ConsDefns = index.lookup(ConsTable, ConsId),
+                list.map_foldl(functor_unif_constraint(TVarA, ArgTVars), ConsDefns, DataConstraints, !TCI),
+
                     % Create a disjunction of all of the possible higher order types.
                 PredTable = Env ^ pred_env,
                 PredIds = search_name(PredTable, SymName),
                 list.filter_map_foldl(ho_pred_unif_constraint(PredTable, TVarA, ArgTVars), PredIds, PredConstraints, !TCI),
-                Constraint = maybe_to_disj(PredConstraints)
+                Constraint = maybe_to_disj(DataConstraints ++ PredConstraints)
             )
         )
     ).
@@ -235,6 +243,27 @@ maybe_to_disj(Constraints) =
     ;
         disj(Constraints)
     ).
+
+%------------------------------------------------------------------------------%
+
+:- pred functor_unif_constraint(tvar::in, list(tvar)::in, hlds_cons_defn::in, constraint::out,
+    typecheck_info::in, typecheck_info::out) is det.
+
+functor_unif_constraint(LHSTVar, ArgTVars, ConsDefn, Constraint, !TCI) :-
+    tvarset_merge_renaming(!.TCI ^ tvarset, ConsDefn ^ cons_type_tvarset, NewTVarset, Renaming),
+    !TCI ^ tvarset := NewTVarset,
+
+    Args = apply_variable_renaming_to_type_list(Renaming, ConsDefn ^ cons_args),
+    ArgConstraints = list.map_corresponding(unify_constraint, ArgTVars, Args),
+
+    Params = apply_variable_renaming_to_type_list(Renaming, ConsDefn ^ cons_type_params),
+    LHSConstraint = unify_constraint(LHSTVar, construct_type(ConsDefn ^ cons_type_ctor, Params)),
+
+    Constraint = conj([LHSConstraint | ArgConstraints]).
+
+:- func construct_type(type_ctor, list(prog_type)) = prog_type.
+
+construct_type(type_ctor(Name, _), Args) = defined_type(Name, Args).
 
 %------------------------------------------------------------------------------%
 
