@@ -161,7 +161,7 @@ init_typecheck_info = typecheck_info(bimap.init, varset.init, []).
 
 :- func init_typecheck_env(hlds) = typecheck_env.
 
-init_typecheck_env(HLDS) = typecheck_env(HLDS ^ predicate_table).
+init_typecheck_env(HLDS) = typecheck_env(HLDS ^ cons_table, HLDS ^ predicate_table).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
@@ -182,7 +182,7 @@ goal_to_constraint(Env, unify(VarA, RHS), Constraint, !TCI) :-
         ; ConsId = float_const(_),
             Constraint = unify(TVarA, float)
 
-        ; ConsId = cons(SymName),
+        ; ConsId = cons(SymName, _Arity),
             list.map_foldl(get_var_type, Args, ArgTVars, !TCI),
             ( SymName = sym_name([], "") ->
                 ( ArgTVars = [HOCallTVar | HOArgTVars] ->

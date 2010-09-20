@@ -126,7 +126,7 @@ process_data_constructor(Info, TypeCtor, Params, TVarset, data_constructor(Name,
     get_name_and_status(Info, Name, FullName, _ImportStatus),
     Constructor = constructor(FullName, Args),
 
-    ConsId = cons(FullName),
+    ConsId = cons(FullName, list.length(Args)),
     ConsDefn = hlds_cons_defn(ConsId, TypeCtor, Params, TVarset, Args, Context),
     add_hlds_cons_defn_to_cons_table(ConsDefn, !.HLDS ^ cons_table, ConsTable),
     !HLDS ^ cons_table := ConsTable.
@@ -286,7 +286,7 @@ term_to_shf(functor(Const, Args, _Context), Var, Goals, !Varset) :-
 unravel_functor(Var, Const0, Args0, Goals, !Varset) :-
     get_qualifiers(Const0, Args0, Qualifiers, Const, Args),
     list.map2_foldl(term_to_shf, Args, ArgVars, GoalsList, !Varset),
-    Rhs = rhs_functor(const_to_cons_id(Qualifiers, Const), ArgVars),
+    Rhs = rhs_functor(const_to_cons_id(Qualifiers, list.length(Args), Const), ArgVars),
     Goals = [unify(Var, Rhs) | list.condense(GoalsList)].
     
 :- pred get_qualifiers(const::in, list(prog_term)::in, list(string)::out, const::out, list(prog_term)::out) is det.
@@ -315,13 +315,13 @@ get_qualifiers_2(Const, Args, Qualifiers) :-
     ).
 
 
-:- func const_to_cons_id(list(string), const) = cons_id.
+:- func const_to_cons_id(list(string), arity, const) = cons_id.
 
-const_to_cons_id(Qualifiers, atom(Atom)) = cons(sym_name(Qualifiers, Atom)).
-const_to_cons_id(_, integer(Int)) = int_const(Int).
-const_to_cons_id(_, string(_)) = func_error("const_to_cons_id: string").
-const_to_cons_id(_, float(Float)) = float_const(Float).
-const_to_cons_id(_, implementation_defined(_)) = func_error("const_to_cons_id: implementation_defined").
+const_to_cons_id(Qualifiers, Arity, atom(Atom)) = cons(sym_name(Qualifiers, Atom), Arity).
+const_to_cons_id(_, _, integer(Int)) = int_const(Int).
+const_to_cons_id(_, _, string(_)) = func_error("const_to_cons_id: string").
+const_to_cons_id(_, _, float(Float)) = float_const(Float).
+const_to_cons_id(_, _, implementation_defined(_)) = func_error("const_to_cons_id: implementation_defined").
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%

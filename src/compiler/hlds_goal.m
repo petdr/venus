@@ -55,7 +55,7 @@
             ).
 
 :- type cons_id
-    --->    cons(sym_name)
+    --->    cons(sym_name, arity)
     ;       int_const(int)
     ;       float_const(float)
     .
@@ -65,7 +65,7 @@
 :- implementation.
 
 :- instance index_key(cons_id) where [
-    (smaller_key(cons(!.SymName), cons(!:SymName)) :-
+    (smaller_key(cons(!.SymName, Arity), cons(!:SymName, Arity)) :-
         smaller_key(!SymName)
     )
 ].
