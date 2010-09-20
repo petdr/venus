@@ -207,6 +207,22 @@ goal_to_hlds_goal(conj(A, B) - _Context, Goal, !Varset) :-
             Goal = conj([GoalA, GoalB])
         )
     ).
+goal_to_hlds_goal(disj(A, B) - _Context, Goal, !Varset) :-
+    goal_to_hlds_goal(A, GoalA, !Varset),
+    goal_to_hlds_goal(B, GoalB, !Varset),
+    ( GoalA = disj(GoalsA) ->
+        ( GoalB = disj(GoalsB) ->
+            Goal = disj(GoalsA ++ GoalsB)
+        ;
+            Goal = disj(GoalsA ++ [GoalB])
+        )
+    ;
+        ( GoalB = disj(GoalsB) ->
+            Goal = disj([GoalA | GoalsB])
+        ;
+            Goal = disj([GoalA, GoalB])
+        )
+    ).
 goal_to_hlds_goal(unify(TermA, TermB) - _Context, Goal, !Varset) :-
     ( TermA = variable(VarA, _),
         ( TermB = variable(VarB, _),

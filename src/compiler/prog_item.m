@@ -62,6 +62,7 @@
                 
 :- type goal_expr
     --->    conj(goal, goal)
+    ;       disj(goal, goal)
     ;       unify(prog_term, prog_term)
     ;       call(sym_name, list(prog_term))
     ;       object_void_call(object_method)

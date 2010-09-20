@@ -161,6 +161,20 @@ parse_clause_body(Term @ functor(Const, Args, Context), Result, !IO) :-
                 Result = error(Errors)
             )
 
+            % Parse a disjunction
+        ; Atom = ";", Args = [TermA, TermB] ->
+            parse_clause_body(TermA, ResultA, !IO),
+            ( ResultA = ok(GoalA),
+                parse_clause_body(TermB, ResultB, !IO),
+                ( ResultB = ok(GoalB),
+                    Result = ok(disj(GoalA, GoalB) - Context)
+                ; ResultB = error(Errors),
+                    Result = error(Errors)
+                )
+            ; ResultA = error(Errors),
+                Result = error(Errors)
+            )
+
             % Parse a unification or object call
         ; Atom = "=", Args = [TermA, TermB] ->
             ( parse_object_method(TermB, Method) ->

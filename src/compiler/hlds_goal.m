@@ -34,6 +34,9 @@
     ;       conj(
                 conj_goals  :: list(hlds_goal)
             )
+    ;       disj(
+                disj_goals  :: list(hlds_goal)
+            )
     ;       method_call(
                 method_var  :: prog_var,
                 method_name :: sym_name,
