@@ -1,0 +1,9 @@
+Make.params
+Mercury.modules
+Mercury/
+tags
+vc
+*.err
+*.mh
+*.m
+*.pl
