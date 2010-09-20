@@ -89,6 +89,22 @@ parse_item(Varset, Term, Result, !IO) :-
         ;
             Result = error([error("pred error", 0)])
         )
+    ; Term = term.functor(term.atom(":-"), [functor(atom("type"), [TypeTerm], _)], Context) ->
+        ( TypeTerm = functor(atom("--->"), [TypeNameTerm, TypeBodyTerm], _) ->
+            parse_type_head(TypeNameTerm, TypeNameResult, !IO),
+            ( TypeNameResult = ok({TypeName, TypeVars}),
+                parse_type_body(TypeBodyTerm, TypeBodyResult, !IO),
+                ( TypeBodyResult = ok(TypeBody),
+                    Result = ok(type_defn(type_defn(TypeName, TypeVars, coerce(Varset), TypeBody, Context)))
+                ; TypeBodyResult = error(Errs),
+                    Result = error(Errs)
+                )
+            ; TypeNameResult = error(Errors),
+                Result = error(Errors)
+            )
+        ;
+            Result = error([error("unsupported type term", 0)])
+        )
     ;
         Result = error([error("Unknown term", 0)])
     ).
@@ -176,6 +192,75 @@ parse_object_method(functor(atom("."), Args, _Context), Method) :-
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
+:- pred parse_type_head(term::in, parse_result({sym_name, list(prog_type)})::out, io::di, io::uo) is det.
+
+parse_type_head(Term @ functor(_Const, _Args, _Context), Result, !IO) :-
+    ( parse_qualified_name(Term, Qualifiers, Name, Args) ->
+        ( var_list(Args, TypeVars) ->
+            Result = ok({sym_name(Qualifiers, Name), list.map(func(V) = type_variable(V), TypeVars)})
+        ;
+            Result = error([error("expected type variables", 0)])
+        )
+    ;
+        Result = error([error("expected name", 0)])
+    ).
+parse_type_head(variable(_Var, _Context), Result, !IO) :-
+    Result = error([error("unexpected variable", 0)]).
+    
+%------------------------------------------------------------------------------%
+
+:- pred parse_type_body(term::in, parse_result(item_type_body)::out, io::di, io::uo) is det.
+
+parse_type_body(Term, Result, !IO) :-
+    parse_data_constructor_list(Term, ConsListResult, !IO),
+    ( ConsListResult = ok(List),
+        Result = ok(discriminated_union(List))
+    ; ConsListResult = error(Errs),
+        Result = error(Errs)
+    ).
+
+:- pred parse_data_constructor_list(term::in, parse_result(list(item_data_constructor))::out, io::di, io::uo) is det.
+
+parse_data_constructor_list(Term, Result, !IO) :-
+    ( Term = functor(atom(";"), [TermA, TermB], _Context) ->
+        parse_data_constructor_list(TermA, ResultA, !IO),
+        ( ResultA = ok(ListA),
+            parse_data_constructor_list(TermB, ResultB, !IO),
+            ( ResultB = ok(ListB),
+                Result = ok(ListA ++ ListB)
+            ; ResultB = error(ErrsB),
+                Result = error(ErrsB)
+            )
+        ; ResultA = error(ErrsA),
+            Result = error(ErrsA)
+        )
+    ;
+        parse_data_constructor(Term, DataConsResult, !IO),
+        ( DataConsResult = ok(DataConstructor),
+            Result = ok([DataConstructor])
+        ; DataConsResult = error(Errs),
+            Result = error(Errs)
+        )
+    ).
+
+:- pred parse_data_constructor(term::in, parse_result(item_data_constructor)::out, io::di, io::uo) is det.
+
+parse_data_constructor(Term, Result, !IO) :-
+    ( parse_qualified_name(Term, Qualifiers, Name, TermArgs) ->
+        parse_type_list(TermArgs, TypeListResult, !IO),
+        ( TypeListResult = ok(Types),
+            Result = ok(data_constructor(sym_name(Qualifiers, Name), Types, get_term_context(Term)))
+        ; TypeListResult = error(Errs),
+            Result = error(Errs)
+        )
+    ;
+        Result = error([error("expected data constructor", 0)])
+    ).
+
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
 :- pred parse_qualified_name(term::in, list(string)::out, string::out, list(term)::out) is semidet.
 
 parse_qualified_name(functor(atom(Atom), Args, _Context), Qualifiers, Name, NameArgs) :-
@@ -220,9 +305,13 @@ parse_type(Term @ functor(_, _, _), Result, !IO) :-
                 Result = error(Errors)
             )
         ;
-            Result = error([error("unknown type", 0)])
+            parse_type_list(TypeCtorArgs, ResultTypeList, !IO),
+            ( ResultTypeList = ok(Types),
+                Result = ok(defined_type(sym_name(Qualifiers, TypeCtor), Types))
+            ; ResultTypeList = error(Errors),
+                Result = error(Errors)
+            )
         )
-        
     ;
         Result = error([error("unknown type", 0)])
     ).
@@ -252,13 +341,13 @@ parse_type_list([Term | Terms], Result, !IO) :-
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
-:- pred prog_var_list(list(term)::in, list(prog_var)::out) is semidet.
+:- pred var_list(list(term)::in, list(var(T))::out) is semidet.
 
-prog_var_list([], []).
-prog_var_list([Term | Terms], [ProgVar | ProgVars]) :-
-    Term = variable(Var, _),
-    coerce_var(Var, ProgVar),
-    prog_var_list(Terms, ProgVars).
+var_list([], []).
+var_list([Term | Terms], [Var | Vars]) :-
+    Term = variable(GenericVar, _),
+    coerce_var(GenericVar, Var),
+    var_list(Terms, Vars).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%

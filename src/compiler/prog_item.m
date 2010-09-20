@@ -42,6 +42,7 @@
                 type_defn_name      :: sym_name,
                 type_defn_params    :: list(prog_type), % Where each prog_type is type_variable
                 type_defn_tvarset   :: tvarset,
+                type_defn_body      :: item_type_body,
                 type_defn_context   :: term.context
             ).
 

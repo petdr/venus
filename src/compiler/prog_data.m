@@ -56,6 +56,7 @@
     --->    atomic_type(atomic_type)
     ;       type_variable(tvar)
     ;       higher_order_type(list(prog_type))
+    ;       defined_type(sym_name, list(prog_type))
     .
 
 :- type atomic_type

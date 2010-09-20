@@ -303,6 +303,8 @@ prog_type_to_type_term(atomic_type(atomic_type_int)) = int.
 prog_type_to_type_term(atomic_type(atomic_type_float)) = float.
 prog_type_to_type_term(type_variable(Var)) = var(Var).
 prog_type_to_type_term(higher_order_type(Args)) = pred_types(Args).
+    % XXX how do we handle module qualified names?
+prog_type_to_type_term(defined_type(sym_name(_Qualifiers, Name), Args)) = functor(Name, list.map(prog_type_to_type_term, Args)).
 
 :- func pred_typevars(list(tvar)) = type_term.
 

@@ -39,6 +39,7 @@ type_list_vars(Types) =
 type_vars(atomic_type(_)) = [].
 type_vars(type_variable(TVar)) = [TVar].
 type_vars(higher_order_type(Args)) = type_list_vars(Args).
+type_vars(defined_type(_, Args)) = type_list_vars(Args).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
@@ -51,6 +52,8 @@ apply_variable_renaming_to_type(Renaming, type_variable(TVar)) =
     type_variable(apply_variable_renaming_to_tvar(Renaming, TVar)).
 apply_variable_renaming_to_type(Renaming, higher_order_type(Args)) =
     higher_order_type(apply_variable_renaming_to_type_list(Renaming, Args)).
+apply_variable_renaming_to_type(Renaming, defined_type(Name, Args)) =
+    defined_type(Name, apply_variable_renaming_to_type_list(Renaming, Args)).
 
 apply_variable_renaming_to_tvar(Renaming, TVar0) =
     ( map.search(Renaming, TVar0, TVar) ->
