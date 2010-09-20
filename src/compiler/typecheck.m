@@ -392,7 +392,8 @@ type_term_to_prog_type(term.functor(atom(Atom), Args, _), Type) :-
     ; Atom = "float", Args = [] ->
         Type = atomic_type(atomic_type_float)
     ;
-        fail
+        list.map(type_term_to_prog_type, Args, Types),
+        Type = defined_type(sym_name([], Atom), Types)
     ).
 
 %------------------------------------------------------------------------------%
