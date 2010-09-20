@@ -15,6 +15,7 @@
 :- type item
     --->    clause(item_clause)
     ;       pred_decl(item_pred_decl)
+    ;       type_defn(item_type_defn)
     .
 
 :- type item_clause
@@ -35,6 +36,26 @@
                 pred_decl_context   :: term.context
             )
     .
+
+:- type item_type_defn
+    --->    type_defn(
+                type_defn_name      :: sym_name,
+                type_defn_params    :: list(prog_type), % Where each prog_type is type_variable
+                type_defn_tvarset   :: tvarset,
+                type_defn_context   :: term.context
+            ).
+
+:- type item_type_body
+    --->    discriminated_union(
+                list(item_data_constructor)
+            ).
+
+:- type item_data_constructor
+    --->    data_constructor(
+                data_cons_name      :: sym_name,
+                data_cons_args      :: list(prog_type),
+                data_cons_context   :: term.context
+            ).
 
 :- type goal == pair(goal_expr, term.context).
                 
