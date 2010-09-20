@@ -471,7 +471,11 @@ flatten_disj(C0, !.Gs) = !:Gs :-
 
 :- pred output_constraint(typecheck_info::in, constraint::in, io::di, io::uo) is det.
 
-output_constraint(Info, Constraint, !IO) :-
+output_constraint(Info0, Constraint, !IO) :-
+        % Name apart all the variables in the tvarset.
+    TVarset0 = Info0 ^ tvarset,
+    Info = Info0 ^ tvarset := varset.ensure_unique_names(varset.vars(TVarset0), "X", TVarset0),
+    
     io.write_string("*** Constraint ***", !IO),
     output_constraint_2(0, Info, flatten(Constraint), !IO),
     io.nl(!IO).
