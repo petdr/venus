@@ -119,7 +119,14 @@ typecheck_pred(HLDS, !Pred, Errors) :-
         ( Goal = no_goal,
             error("XXX: there should be a goal!")
         ; Goal = goal(HldsGoal),
-            goal_to_constraint(Env, HldsGoal, Constraint, !TCI),
+            list.map_foldl(get_var_type, !.Pred ^ pred_args, ArgTVars, !TCI),
+            pred_renamed_apart_argtypes(!.Pred, !.TCI ^ tvarset, NewTVarset, PredArgTypes),
+            !TCI ^ tvarset := NewTVarset,
+
+            ArgConstraints = list.map_corresponding(unify_constraint, ArgTVars, PredArgTypes),
+            goal_to_constraint(Env, HldsGoal, GoalConstraint, !TCI),
+
+            Constraint = maybe_to_conj(ArgConstraints ++ [GoalConstraint]),
 
                 % Ensure that each variable in the varset has a unique name.
                 % This is so that output_constraint and output_varset are
@@ -256,6 +263,15 @@ maybe_to_disj(Constraints) =
         disj(Constraints)
     ).
 
+:- func maybe_to_conj(list(constraint)) = constraint.
+
+maybe_to_conj(Constraints) =
+    ( Constraints = [Constraint] ->
+        Constraint
+    ;
+        conj(Constraints)
+    ).
+
 %------------------------------------------------------------------------------%
 
 :- pred functor_unif_constraint(tvar::in, list(tvar)::in, hlds_cons_defn::in, constraint::out,
@@ -271,7 +287,7 @@ functor_unif_constraint(LHSTVar, ArgTVars, ConsDefn, Constraint, !TCI) :-
     Params = apply_variable_renaming_to_type_list(Renaming, ConsDefn ^ cons_type_params),
     LHSConstraint = unify_constraint(LHSTVar, construct_type(ConsDefn ^ cons_type_ctor, Params)),
 
-    Constraint = conj([LHSConstraint | ArgConstraints]).
+    Constraint = maybe_to_conj([LHSConstraint | ArgConstraints]).
 
 :- func construct_type(type_ctor, list(prog_type)) = prog_type.
 
@@ -291,7 +307,7 @@ ho_pred_unif_constraint(PredTable, LHSTVar, ArgTVars, PredId, Constraint, !TCI) 
     ( list.split_list(list.length(ArgTVars), PredArgTypes, HOArgTypes, LambdaTypes) ->
         ArgConstraints = list.map_corresponding(unify_constraint, ArgTVars, HOArgTypes),
         LHSConstraint = unify(LHSTVar, pred_types(LambdaTypes)),
-        Constraint = conj([LHSConstraint | ArgConstraints])
+        Constraint = maybe_to_conj([LHSConstraint | ArgConstraints])
     ;
         % Arity less than arguments supplied
         fail
@@ -316,7 +332,7 @@ pred_call_constraint(PredTable, ArgTVars, PredId, Constraint, !TCI) :-
     ),
 
     Constraints = list.map_corresponding(unify_constraint, ArgTVars, ArgTypes),
-    Constraint = conj(Constraints).
+    Constraint = maybe_to_conj(Constraints).
 
 :- func unify_constraint(tvar, prog_type) = constraint.
 
