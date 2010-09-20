@@ -132,7 +132,7 @@ typecheck_pred(HLDS, !Pred, Errors) :-
 
             goal_to_constraint(Env, HldsGoal, GoalConstraint, !TCI),
 
-            Constraint = maybe_to_conj(ArgConstraints ++ [GoalConstraint]),
+            Constraint = sort_constraints(maybe_to_conj(ArgConstraints ++ [GoalConstraint])),
 
                 % Ensure that each variable in the varset has a unique name.
                 % This is so that output_constraint and output_varset are
@@ -466,6 +466,40 @@ apply_rec_substitution(Term0, Varset, Term) :-
     apply_rec_substitution(Term0, varset.get_bindings(Varset), Term).
 
 %------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
+    % Sort the constraints so that we restrict the domain as much as possible
+    % before entering the disjunctions.
+:- func sort_constraints(constraint) = constraint.
+
+sort_constraints(C) = sort_constraints_2(flatten(C)).
+
+:- func sort_constraints_2(constraint) = constraint.
+
+sort_constraints_2(conj(Cs)) = conj(list.sort(compare_constraint, list.map(sort_constraints_2, Cs))).
+sort_constraints_2(disj(Cs)) = disj(list.sort(compare_constraint, list.map(sort_constraints_2, Cs))).
+sort_constraints_2(C @ unify(_, _)) = C.
+    
+:- func compare_constraint(constraint, constraint) = comparison_result.
+
+compare_constraint(conj(_), conj(_)) = (=).
+compare_constraint(conj(_), disj(_)) = (<).
+compare_constraint(conj(_), unify(_, _)) = (>).
+compare_constraint(disj(_), conj(_)) = (>).
+compare_constraint(disj(_), disj(_)) = (=).
+compare_constraint(disj(_), unify(_, _)) = (>).
+compare_constraint(unify(_, _), conj(_)) = (<).
+compare_constraint(unify(_, _), disj(_)) = (<).
+compare_constraint(unify(_, TypeA), unify(_, TypeB)) = R :-
+    NumA = number_type_vars(TypeA),
+    NumB = number_type_vars(TypeB),
+    compare(R, NumA, NumB).
+
+:- func number_type_vars(term(T)) = int.
+
+number_type_vars(variable(_, _)) = 1.
+number_type_vars(functor(_, Args, _)) = list.foldl(func(A,B) = A + B, list.map(number_type_vars, Args), 0).
+
 %------------------------------------------------------------------------------%
 
     % Take a constraint and flatten all the disjunctions and conjunctions.
