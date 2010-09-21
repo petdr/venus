@@ -16,6 +16,7 @@
 
 :- interface.
 
+:- import_module error_util.
 :- import_module prog_item.
 
 :- import_module io.
@@ -24,10 +25,7 @@
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
-:- type parse_error
-    --->    error(string, int).
-
-:- pred parse_items(list(item)::out, list(parse_error)::out, io::di, io::uo) is det.
+:- pred parse_items(string::in, list(item)::out, list(error_spec)::out, io::di, io::uo) is det.
 
 %------------------------------------------------------------------------------%
 
@@ -42,12 +40,12 @@
 :- import_module term_io.
 :- import_module varset.
 
-parse_items(Items, Errors, !IO) :-
+parse_items(FileName, Items, Errors, !IO) :-
     parser.read_term(ReadTermResult, !IO),
     ( ReadTermResult = term(Varset, Term),
         parse_item(Varset, Term, ParseResult, !IO),
         ( ParseResult = ok(Item),
-            parse_items(Items0, Errors, !IO),
+            parse_items(FileName, Items0, Errors, !IO),
             Items = [Item | Items0]
 
         ; ParseResult = error(Errors),
@@ -58,14 +56,14 @@ parse_items(Items, Errors, !IO) :-
         Items = [],
         Errors = []
 
-    ; ReadTermResult = error(ErrStr, ErrInt),
+    ; ReadTermResult = error(Error, Line),
         Items = [],
-        Errors = [error(ErrStr, ErrInt)]
+        Errors = [simple_error_msg(context(FileName, Line), Error)]
     ).
 
 :- type parse_result(T)
     --->    ok(T)
-    ;       error(list(parse_error))
+    ;       error(list(error_spec))
     .
     
 :- pred parse_item(varset::in, term::in, parse_result(item)::out, io::di, io::uo) is det.
@@ -87,7 +85,7 @@ parse_item(Varset, Term, Result, !IO) :-
                 Result = error(Errors)
             )
         ;
-            Result = error([error("pred error", 0)])
+            Result = error([simple_error_msg(Context, "Unable to parse predicate declaration")])
         )
     ; Term = term.functor(term.atom(":-"), [functor(atom("type"), [TypeTerm], _)], Context) ->
         ( TypeTerm = functor(atom("--->"), [TypeNameTerm, TypeBodyTerm], _) ->
@@ -103,10 +101,10 @@ parse_item(Varset, Term, Result, !IO) :-
                 Result = error(Errors)
             )
         ;
-            Result = error([error("unsupported type term", 0)])
+            Result = error([simple_error_msg(Context, "Unable to parse type definition")])
         )
     ;
-        Result = error([error("Unknown term", 0)])
+        Result = error([simple_error_msg(get_term_context(Term), "Unable to parse the term")])
     ).
 
 %------------------------------------------------------------------------------%
@@ -138,7 +136,7 @@ parse_clause_head(_Varset, HeadTerm, Result, !IO) :-
     ->
         Result = ok({Name, list.map(coerce, HeadArgs)})
     ;
-        Result = error([error("XXX", 0)])
+        Result = error([simple_error_msg(get_term_context(HeadTerm), "Unable to parse clause head")])
     ).
 
 %------------------------------------------------------------------------------%
@@ -190,10 +188,10 @@ parse_clause_body(Term @ functor(Const, Args, Context), Result, !IO) :-
             Result = ok(call(sym_name([], Atom), list.map(coerce, Args)) - Context)
         )
     ;
-        Result = error([error("expected an atom for the goal", 0)])
+        Result = error([simple_error_msg(Context, "Unable to parse the clause body")])
     ).
-parse_clause_body(variable(_Var, _Context), Result, !IO) :-
-    Result = error([error("unexpected variable", 0)]).
+parse_clause_body(variable(_Var, Context), Result, !IO) :-
+    Result = error([simple_error_msg(Context, "Unexpected variable")]).
 
 %------------------------------------------------------------------------------%
 
@@ -208,18 +206,18 @@ parse_object_method(functor(atom("."), Args, _Context), Method) :-
 
 :- pred parse_type_head(term::in, parse_result({sym_name, list(prog_type)})::out, io::di, io::uo) is det.
 
-parse_type_head(Term @ functor(_Const, _Args, _Context), Result, !IO) :-
+parse_type_head(Term @ functor(_Const, _Args, Context), Result, !IO) :-
     ( parse_qualified_name(Term, Qualifiers, Name, Args) ->
         ( var_list(Args, TypeVars) ->
             Result = ok({sym_name(Qualifiers, Name), list.map(func(V) = type_variable(V), TypeVars)})
         ;
-            Result = error([error("expected type variables", 0)])
+            Result = error([simple_error_msg(Context, "Expected a list of type variables")])
         )
     ;
-        Result = error([error("expected name", 0)])
+        Result = error([simple_error_msg(Context, "Expected a name")])
     ).
-parse_type_head(variable(_Var, _Context), Result, !IO) :-
-    Result = error([error("unexpected variable", 0)]).
+parse_type_head(variable(_Var, Context), Result, !IO) :-
+    Result = error([simple_error_msg(Context, "Unexpected variable")]).
     
 %------------------------------------------------------------------------------%
 
@@ -268,7 +266,7 @@ parse_data_constructor(Term, Result, !IO) :-
             Result = error(Errs)
         )
     ;
-        Result = error([error("expected data constructor", 0)])
+        Result = error([simple_error_msg(get_term_context(Term), "Expected a data constructor")])
     ).
 
 
@@ -327,7 +325,7 @@ parse_type(Term @ functor(_, _, _), Result, !IO) :-
             )
         )
     ;
-        Result = error([error("unknown type", 0)])
+        Result = error([simple_error_msg(get_term_context(Term), "Expected a name")])
     ).
 
 %------------------------------------------------------------------------------%
@@ -362,6 +360,13 @@ var_list([Term | Terms], [Var | Vars]) :-
     Term = variable(GenericVar, _),
     coerce_var(GenericVar, Var),
     var_list(Terms, Vars).
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
+:- func simple_error_msg(term.context, string) = error_spec.
+
+simple_error_msg(Context, Msg) = error_spec(severity_error, [simple_msg(Context, [always([words(Msg)])])]).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%

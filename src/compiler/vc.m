@@ -29,7 +29,7 @@ main(!IO) :-
         ModuleName = file_name_to_module_name(FileName),
         io.see(FileName, SeeRes, !IO),
         ( SeeRes = ok,
-            parse_items(Items, Errors, !IO),
+            parse_items(FileName, Items, Errors, !IO),
             ( Errors = [],
                 make_hlds(ModuleName, Items, HLDS0, !IO),
                 front_end_pass(ErrorSpecs, HLDS0, HLDS),
