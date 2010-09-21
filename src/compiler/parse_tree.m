@@ -43,7 +43,7 @@
 parse_items(FileName, Items, Errors, !IO) :-
     parser.read_term(ReadTermResult, !IO),
     ( ReadTermResult = term(Varset, Term),
-        parse_item(Varset, Term, ParseResult, !IO),
+        parse_item(Varset, Term, ParseResult),
         ( ParseResult = ok(Item),
             parse_items(FileName, Items0, Errors, !IO),
             Items = [Item | Items0]
@@ -66,11 +66,11 @@ parse_items(FileName, Items, Errors, !IO) :-
     ;       error(list(error_spec))
     .
     
-:- pred parse_item(varset::in, term::in, parse_result(item)::out, io::di, io::uo) is det.
+:- pred parse_item(varset::in, term::in, parse_result(item)::out) is det.
 
-parse_item(Varset, Term, Result, !IO) :-
+parse_item(Varset, Term, Result) :-
     ( Term = term.functor(term.atom(":-"), [HeadTerm, BodyTerm], Context) ->
-        parse_clause(Varset, HeadTerm, BodyTerm, Context, ClauseResult, !IO),
+        parse_clause(Varset, HeadTerm, BodyTerm, Context, ClauseResult),
         ( ClauseResult = ok(Clause),
             Result = ok(clause(Clause))
         ; ClauseResult = error(Errors),
@@ -78,7 +78,7 @@ parse_item(Varset, Term, Result, !IO) :-
         )
     ; Term = term.functor(term.atom(":-"), [functor(atom("pred"), [PredTerm], _)], Context) ->
         ( parse_qualified_name(PredTerm, Qualifiers, Name, PredArgs) ->
-            parse_type_list(PredArgs, ResultPredArgs, !IO),
+            parse_type_list(PredArgs, ResultPredArgs),
             ( ResultPredArgs = ok(Types),
                 Result = ok(pred_decl(pred_decl(sym_name(Qualifiers, Name), Types, coerce(Varset), Context)))
             ; ResultPredArgs = error(Errors),
@@ -89,9 +89,9 @@ parse_item(Varset, Term, Result, !IO) :-
         )
     ; Term = term.functor(term.atom(":-"), [functor(atom("type"), [TypeTerm], _)], Context) ->
         ( TypeTerm = functor(atom("--->"), [TypeNameTerm, TypeBodyTerm], _) ->
-            parse_type_head(TypeNameTerm, TypeNameResult, !IO),
+            parse_type_head(TypeNameTerm, TypeNameResult),
             ( TypeNameResult = ok({TypeName, TypeVars}),
-                parse_type_body(TypeBodyTerm, TypeBodyResult, !IO),
+                parse_type_body(TypeBodyTerm, TypeBodyResult),
                 ( TypeBodyResult = ok(TypeBody),
                     Result = ok(type_defn(type_defn(TypeName, TypeVars, coerce(Varset), TypeBody, Context)))
                 ; TypeBodyResult = error(Errs),
@@ -110,13 +110,12 @@ parse_item(Varset, Term, Result, !IO) :-
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
-:- pred parse_clause(varset::in, term::in, term::in,
-    term.context::in, parse_result(item_clause)::out, io::di, io::uo) is det.
+:- pred parse_clause(varset::in, term::in, term::in, term.context::in, parse_result(item_clause)::out) is det.
 
-parse_clause(Varset, HeadTerm, BodyTerm, ClauseContext, Result, !IO) :-
-    parse_clause_head(Varset, HeadTerm, HeadResult, !IO),
+parse_clause(Varset, HeadTerm, BodyTerm, ClauseContext, Result) :-
+    parse_clause_head(Varset, HeadTerm, HeadResult),
     ( HeadResult = ok({Name, Args}),
-        parse_clause_body(BodyTerm, BodyResult, !IO),
+        parse_clause_body(BodyTerm, BodyResult),
         ( BodyResult = ok(BodyGoal),
             Result = ok(clause(sym_name([], Name), Args, BodyGoal, coerce(Varset), ClauseContext))
         ; BodyResult = error(Errors),
@@ -128,9 +127,9 @@ parse_clause(Varset, HeadTerm, BodyTerm, ClauseContext, Result, !IO) :-
 
 %------------------------------------------------------------------------------%
 
-:- pred parse_clause_head(varset::in, term::in, parse_result({string, list(prog_term)})::out, io::di, io::uo) is det.
+:- pred parse_clause_head(varset::in, term::in, parse_result({string, list(prog_term)})::out) is det.
 
-parse_clause_head(_Varset, HeadTerm, Result, !IO) :-
+parse_clause_head(_Varset, HeadTerm, Result) :-
     (
         HeadTerm = term.functor(term.atom(Name), HeadArgs, _HeadContext)
     ->
@@ -141,15 +140,15 @@ parse_clause_head(_Varset, HeadTerm, Result, !IO) :-
 
 %------------------------------------------------------------------------------%
 
-:- pred parse_clause_body(term::in, parse_result(goal)::out, io::di, io::uo) is det.
+:- pred parse_clause_body(term::in, parse_result(goal)::out) is det.
 
-parse_clause_body(Term @ functor(Const, Args, Context), Result, !IO) :-
+parse_clause_body(Term @ functor(Const, Args, Context), Result) :-
     ( Const = atom(Atom) ->
             % Parse a conjunction
         ( Atom = ",", Args = [TermA, TermB] ->
-            parse_clause_body(TermA, ResultA, !IO),
+            parse_clause_body(TermA, ResultA),
             ( ResultA = ok(GoalA),
-                parse_clause_body(TermB, ResultB, !IO),
+                parse_clause_body(TermB, ResultB),
                 ( ResultB = ok(GoalB),
                     Result = ok(conj(GoalA, GoalB) - Context)
                 ; ResultB = error(Errors),
@@ -161,9 +160,9 @@ parse_clause_body(Term @ functor(Const, Args, Context), Result, !IO) :-
 
             % Parse a disjunction
         ; Atom = ";", Args = [TermA, TermB] ->
-            parse_clause_body(TermA, ResultA, !IO),
+            parse_clause_body(TermA, ResultA),
             ( ResultA = ok(GoalA),
-                parse_clause_body(TermB, ResultB, !IO),
+                parse_clause_body(TermB, ResultB),
                 ( ResultB = ok(GoalB),
                     Result = ok(disj(GoalA, GoalB) - Context)
                 ; ResultB = error(Errors),
@@ -190,7 +189,7 @@ parse_clause_body(Term @ functor(Const, Args, Context), Result, !IO) :-
     ;
         Result = error([simple_error_msg(Context, "Unable to parse the clause body")])
     ).
-parse_clause_body(variable(_Var, Context), Result, !IO) :-
+parse_clause_body(variable(_Var, Context), Result) :-
     Result = error([simple_error_msg(Context, "Unexpected variable")]).
 
 %------------------------------------------------------------------------------%
@@ -204,9 +203,9 @@ parse_object_method(functor(atom("."), Args, _Context), Method) :-
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
-:- pred parse_type_head(term::in, parse_result({sym_name, list(prog_type)})::out, io::di, io::uo) is det.
+:- pred parse_type_head(term::in, parse_result({sym_name, list(prog_type)})::out) is det.
 
-parse_type_head(Term @ functor(_Const, _Args, Context), Result, !IO) :-
+parse_type_head(Term @ functor(_Const, _Args, Context), Result) :-
     ( parse_qualified_name(Term, Qualifiers, Name, Args) ->
         ( var_list(Args, TypeVars) ->
             Result = ok({sym_name(Qualifiers, Name), list.map(func(V) = type_variable(V), TypeVars)})
@@ -216,28 +215,28 @@ parse_type_head(Term @ functor(_Const, _Args, Context), Result, !IO) :-
     ;
         Result = error([simple_error_msg(Context, "Expected a name")])
     ).
-parse_type_head(variable(_Var, Context), Result, !IO) :-
+parse_type_head(variable(_Var, Context), Result) :-
     Result = error([simple_error_msg(Context, "Unexpected variable")]).
     
 %------------------------------------------------------------------------------%
 
-:- pred parse_type_body(term::in, parse_result(item_type_body)::out, io::di, io::uo) is det.
+:- pred parse_type_body(term::in, parse_result(item_type_body)::out) is det.
 
-parse_type_body(Term, Result, !IO) :-
-    parse_data_constructor_list(Term, ConsListResult, !IO),
+parse_type_body(Term, Result) :-
+    parse_data_constructor_list(Term, ConsListResult),
     ( ConsListResult = ok(List),
         Result = ok(discriminated_union(List))
     ; ConsListResult = error(Errs),
         Result = error(Errs)
     ).
 
-:- pred parse_data_constructor_list(term::in, parse_result(list(item_data_constructor))::out, io::di, io::uo) is det.
+:- pred parse_data_constructor_list(term::in, parse_result(list(item_data_constructor))::out) is det.
 
-parse_data_constructor_list(Term, Result, !IO) :-
+parse_data_constructor_list(Term, Result) :-
     ( Term = functor(atom(";"), [TermA, TermB], _Context) ->
-        parse_data_constructor_list(TermA, ResultA, !IO),
+        parse_data_constructor_list(TermA, ResultA),
         ( ResultA = ok(ListA),
-            parse_data_constructor_list(TermB, ResultB, !IO),
+            parse_data_constructor_list(TermB, ResultB),
             ( ResultB = ok(ListB),
                 Result = ok(ListA ++ ListB)
             ; ResultB = error(ErrsB),
@@ -247,7 +246,7 @@ parse_data_constructor_list(Term, Result, !IO) :-
             Result = error(ErrsA)
         )
     ;
-        parse_data_constructor(Term, DataConsResult, !IO),
+        parse_data_constructor(Term, DataConsResult),
         ( DataConsResult = ok(DataConstructor),
             Result = ok([DataConstructor])
         ; DataConsResult = error(Errs),
@@ -255,11 +254,11 @@ parse_data_constructor_list(Term, Result, !IO) :-
         )
     ).
 
-:- pred parse_data_constructor(term::in, parse_result(item_data_constructor)::out, io::di, io::uo) is det.
+:- pred parse_data_constructor(term::in, parse_result(item_data_constructor)::out) is det.
 
-parse_data_constructor(Term, Result, !IO) :-
+parse_data_constructor(Term, Result) :-
     ( parse_qualified_name(Term, Qualifiers, Name, TermArgs) ->
-        parse_type_list(TermArgs, TypeListResult, !IO),
+        parse_type_list(TermArgs, TypeListResult),
         ( TypeListResult = ok(Types),
             Result = ok(data_constructor(sym_name(Qualifiers, Name), Types, get_term_context(Term)))
         ; TypeListResult = error(Errs),
@@ -300,24 +299,24 @@ parse_qualifiers(atom(Atom), Args, Qualifiers) :-
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
-:- pred parse_type(term::in, parse_result(prog_type)::out, io::di, io::uo) is det.
+:- pred parse_type(term::in, parse_result(prog_type)::out) is det.
 
-parse_type(variable(Var, _), ok(type_variable(coerce_var(Var))), !IO).
-parse_type(Term @ functor(_, _, _), Result, !IO) :-
+parse_type(variable(Var, _), ok(type_variable(coerce_var(Var)))).
+parse_type(Term @ functor(_, _, _), Result) :-
     ( parse_qualified_name(Term, Qualifiers, TypeCtor, TypeCtorArgs) ->
         ( Qualifiers = [], TypeCtor = "int", TypeCtorArgs = [] ->
             Result = ok(atomic_type(atomic_type_int))
         ; Qualifiers = [], TypeCtor = "float", TypeCtorArgs = [] ->
             Result = ok(atomic_type(atomic_type_float))
         ; Qualifiers = [], TypeCtor = "pred" ->
-            parse_type_list(TypeCtorArgs, ResultTypeList, !IO),
+            parse_type_list(TypeCtorArgs, ResultTypeList),
             ( ResultTypeList = ok(Types),
                 Result = ok(higher_order_type(Types))
             ; ResultTypeList = error(Errors),
                 Result = error(Errors)
             )
         ;
-            parse_type_list(TypeCtorArgs, ResultTypeList, !IO),
+            parse_type_list(TypeCtorArgs, ResultTypeList),
             ( ResultTypeList = ok(Types),
                 Result = ok(defined_type(sym_name(Qualifiers, TypeCtor), Types))
             ; ResultTypeList = error(Errors),
@@ -330,12 +329,12 @@ parse_type(Term @ functor(_, _, _), Result, !IO) :-
 
 %------------------------------------------------------------------------------%
 
-:- pred parse_type_list(list(term)::in, parse_result(list(prog_type))::out, io::di, io::uo) is det.
+:- pred parse_type_list(list(term)::in, parse_result(list(prog_type))::out) is det.
 
-parse_type_list([], ok([]), !IO).
-parse_type_list([Term | Terms], Result, !IO) :-
-    parse_type(Term, ResultTerm, !IO),
-    parse_type_list(Terms, ResultTerms, !IO),
+parse_type_list([], ok([])).
+parse_type_list([Term | Terms], Result) :-
+    parse_type(Term, ResultTerm),
+    parse_type_list(Terms, ResultTerms),
     ( ResultTerm = ok(Type),
         ( ResultTerms = ok(Types),
             Result = ok([Type | Types])
