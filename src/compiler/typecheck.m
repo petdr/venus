@@ -47,6 +47,7 @@
 :- import_module require.
 :- import_module set.
 :- import_module solutions.
+:- import_module string.
 :- import_module svbimap.
 :- import_module svmap.
 :- import_module svvarset.
@@ -368,8 +369,25 @@ prog_type_to_type_term(atomic_type(atomic_type_int)) = int.
 prog_type_to_type_term(atomic_type(atomic_type_float)) = float.
 prog_type_to_type_term(type_variable(Var)) = var(Var).
 prog_type_to_type_term(higher_order_type(Args)) = pred_types(Args).
-    % XXX how do we handle module qualified names?
-prog_type_to_type_term(defined_type(sym_name(_Qualifiers, Name), Args)) = functor(Name, list.map(prog_type_to_type_term, Args)).
+prog_type_to_type_term(defined_type(SymName, Args)) =
+    functor(sym_name_to_string(SymName), list.map(prog_type_to_type_term, Args)).
+
+:- func sym_name_to_string(sym_name) = string.
+
+sym_name_to_string(sym_name(Qualifiers, Name)) =
+    string.append_list(list.map(func(S) = S ++ ".", Qualifiers) ++ [Name]).
+
+:- func string_to_sym_name(string) = sym_name.
+
+string_to_sym_name(String) = sym_name(Qualifiers, Name) :-
+    L = string.split_at_string(".", String),
+    ( list.split_last(L, Qualifiers0, Name0) ->
+        Qualifiers = Qualifiers0,
+        Name = Name0
+    ;
+        Qualifiers = [],
+        Name = String
+    ).
 
 :- func pred_typevars(list(tvar)) = type_term.
 
@@ -430,7 +448,7 @@ type_term_to_prog_type(term.functor(atom(Atom), Args, _), Type) :-
         Type = atomic_type(atomic_type_float)
     ;
         list.map(type_term_to_prog_type, Args, Types),
-        Type = defined_type(sym_name([], Atom), Types)
+        Type = defined_type(string_to_sym_name(Atom), Types)
     ).
 
 %------------------------------------------------------------------------------%
