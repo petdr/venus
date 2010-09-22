@@ -69,6 +69,7 @@ make_hlds(ModuleName, Items, !:HLDS, !IO) :-
 :- pred process_decls(make_hlds_info::in, item::in, hlds::in, hlds::out) is det.
 
 process_decls(_Info, clause(_), !HLDS).
+process_decls(_Info, typeclass_defn(_), !HLDS).
 process_decls(Info, type_defn(T), !HLDS) :-
     T = type_defn(Name, Params, TVarset, Body, Context),
 
@@ -140,6 +141,7 @@ process_data_constructor(Info, TypeCtor, Params, TVarset, data_constructor(Name,
 
 process_clause_items(_Info, pred_decl(_), !HLDS).
 process_clause_items(_Info, type_defn(_), !HLDS).
+process_clause_items(_Info, typeclass_defn(_), !HLDS).
 process_clause_items(Info, clause(Clause), !HLDS) :-
     add_clause(Info, Clause, !HLDS).
 

@@ -69,6 +69,9 @@
     ;       atomic_type_float
     .
 
+    % A type_param is a prog_type which is a type_variable.
+:- type type_param == prog_type.
+
     % Similar to varset.merge_subst but produces a tvar_renaming
     % instead of a substitution, which is more suitable for types.
     %

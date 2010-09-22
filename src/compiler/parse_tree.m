@@ -103,6 +103,8 @@ parse_item(Varset, Term, Result) :-
         ;
             Result = error([simple_error_msg(Context, "Unable to parse type definition")])
         )
+    ; Term = term.functor(term.atom(":-"), [functor(atom("typeclass"), [_TypeClassTerm], _)], Context) ->
+        Result = error([simple_error_msg(Context, "Unable to parse the typeclass")])
     ;
         Result = error([simple_error_msg(get_term_context(Term), "Unable to parse the term")])
     ).
