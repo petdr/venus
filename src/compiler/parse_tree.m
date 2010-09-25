@@ -77,10 +77,10 @@ parse_item(Varset, Term, Result) :-
             Result = error(Errors)
         )
     ; Term = term.functor(term.atom(":-"), [functor(atom("pred"), [PredTerm], _)], Context) ->
-        ( parse_qualified_name(PredTerm, Qualifiers, Name, PredArgs) ->
+        ( parse_sym_name(PredTerm, SymName, PredArgs) ->
             parse_type_list(PredArgs, ResultPredArgs),
             ( ResultPredArgs = ok(Types),
-                Result = ok(pred_decl(pred_decl(sym_name(Qualifiers, Name), Types, coerce(Varset), Context)))
+                Result = ok(pred_decl(pred_decl(SymName, Types, coerce(Varset), Context)))
             ; ResultPredArgs = error(Errors),
                 Result = error(Errors)
             )
@@ -154,8 +154,8 @@ parse_clause_body(Term @ functor(Const, Args, Context), Result) :-
             )
         ; parse_object_method(Term, Method) ->
             Result = ok(object_void_call(Method) - Context)
-        ; parse_qualified_name(Term, Qualifiers, Name, SymNameArgs) ->
-            Result = ok(call(sym_name(Qualifiers, Name), list.map(coerce, SymNameArgs)) - Context)
+        ; parse_sym_name(Term, SymName, SymNameArgs) ->
+            Result = ok(call(SymName, list.map(coerce, SymNameArgs)) - Context)
         ;
             Result = ok(call(sym_name([], Atom), list.map(coerce, Args)) - Context)
         )
@@ -179,9 +179,9 @@ parse_object_method(functor(atom("."), Args, _Context), Method) :-
 :- pred parse_type_head(term::in, parse_result({sym_name, list(prog_type)})::out) is det.
 
 parse_type_head(Term @ functor(_Const, _Args, Context), Result) :-
-    ( parse_qualified_name(Term, Qualifiers, Name, Args) ->
+    ( parse_sym_name(Term, SymName, Args) ->
         ( var_list(Args, TypeVars) ->
-            Result = ok({sym_name(Qualifiers, Name), list.map(func(V) = type_variable(V), TypeVars)})
+            Result = ok({SymName, list.map(func(V) = type_variable(V), TypeVars)})
         ;
             Result = error([simple_error_msg(Context, "Expected a list of type variables")])
         )
@@ -222,10 +222,10 @@ parse_data_constructor_list(Term, Result) :-
 :- pred parse_data_constructor(term::in, parse_result(item_data_constructor)::out) is det.
 
 parse_data_constructor(Term, Result) :-
-    ( parse_qualified_name(Term, Qualifiers, Name, TermArgs) ->
+    ( parse_sym_name(Term, SymName, TermArgs) ->
         parse_type_list(TermArgs, TypeListResult),
         ( TypeListResult = ok(Types),
-            Result = ok(data_constructor(sym_name(Qualifiers, Name), Types, get_term_context(Term)))
+            Result = ok(data_constructor(SymName, Types, get_term_context(Term)))
         ; TypeListResult = error(Errs),
             Result = error(Errs)
         )
@@ -240,7 +240,7 @@ parse_data_constructor(Term, Result) :-
 
 parse_typeclass(Varset, TypeclassContext, Term, Result) :-
     ( Term = term.functor(atom("where"), [NameTerm, ListTerm], _Context) ->
-        ( parse_qualified_name(NameTerm, Qualifiers, Name, TermArgs) ->
+        ( parse_sym_name(NameTerm, SymName, TermArgs) ->
             (
                 var_list(TermArgs, TypeVars),
                 TermArgs = [_|_]
@@ -249,7 +249,6 @@ parse_typeclass(Varset, TypeclassContext, Term, Result) :-
                 parse_list(parse_typeclass_method(TVarset), ListTerm, MethodsResult),
                 ( MethodsResult = ok(Methods),
                     TypeParams = list.map(func(V) = type_variable(V), TypeVars),
-                    SymName = sym_name(Qualifiers, Name),
                     TypeClassDefn = typeclass_defn(SymName, TypeParams, TVarset, Methods, TypeclassContext),
                     Result = ok(typeclass_defn(TypeClassDefn))
                 ; MethodsResult = error(Errs),
@@ -270,10 +269,10 @@ parse_typeclass(Varset, TypeclassContext, Term, Result) :-
 
 parse_typeclass_method(TVarset, Term, Result) :-
     ( Term = functor(atom("pred"), [PredTerm], Context) ->
-        ( parse_qualified_name(PredTerm, Qualifiers, Name, PredArgs) ->
+        ( parse_sym_name(PredTerm, SymName, PredArgs) ->
             parse_type_list(PredArgs, ResultPredArgs),
             ( ResultPredArgs = ok(Types),
-                Result = ok(class_method(sym_name(Qualifiers, Name), Types, TVarset, Context))
+                Result = ok(class_method(SymName, Types, TVarset, Context))
             ; ResultPredArgs = error(Errors),
                 Result = error(Errors)
             )
@@ -306,9 +305,9 @@ parse_constraint_list(Term, Result) :-
 :- pred parse_constraint(term::in, parse_result(prog_constraint)::out) is det.
 
 parse_constraint(Term, Result) :-
-    ( parse_qualified_name(Term, Qualifiers, Name, Args) ->
+    ( parse_sym_name(Term, SymName, Args) ->
         ( var_list(Args, TypeVars) ->
-            Result = ok(prog_constraint(sym_name(Qualifiers, Name), list.map(func(V) = type_variable(V), TypeVars)))
+            Result = ok(prog_constraint(SymName, list.map(func(V) = type_variable(V), TypeVars)))
         ;
             Result = error([simple_error_msg(get_term_context(Term), "Expected a list of type variables")])
         )
@@ -318,6 +317,11 @@ parse_constraint(Term, Result) :-
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
+
+:- pred parse_sym_name(term::in, sym_name::out, list(term)::out) is semidet.
+
+parse_sym_name(Term, sym_name(Qualifiers, Name), Args) :-
+    parse_qualified_name(Term, Qualifiers, Name, Args).
 
 :- pred parse_qualified_name(term::in, list(string)::out, string::out, list(term)::out) is semidet.
 
