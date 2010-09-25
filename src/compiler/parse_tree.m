@@ -90,16 +90,10 @@ parse_item(Varset, Term, Result) :-
     ; Term = term.functor(term.atom(":-"), [functor(atom("type"), [TypeTerm], _)], Context) ->
         ( TypeTerm = functor(atom("--->"), [TypeNameTerm, TypeBodyTerm], _) ->
             parse_type_head(TypeNameTerm, TypeNameResult),
-            ( TypeNameResult = ok({TypeName, TypeVars}),
-                parse_type_body(TypeBodyTerm, TypeBodyResult),
-                ( TypeBodyResult = ok(TypeBody),
-                    Result = ok(type_defn(type_defn(TypeName, TypeVars, coerce(Varset), TypeBody, Context)))
-                ; TypeBodyResult = error(Errs),
-                    Result = error(Errs)
-                )
-            ; TypeNameResult = error(Errors),
-                Result = error(Errors)
-            )
+            parse_type_body(TypeBodyTerm, TypeBodyResult),
+            Combine = (func({TypeName, TypeVars}, TypeBody) =
+                type_defn(type_defn(TypeName, TypeVars, coerce(Varset), TypeBody, Context))),
+            Result = combine_results(Combine, TypeNameResult, TypeBodyResult)
         ;
             Result = error([simple_error_msg(Context, "Unable to parse type definition")])
         )
@@ -116,16 +110,9 @@ parse_item(Varset, Term, Result) :-
 
 parse_clause(Varset, HeadTerm, BodyTerm, ClauseContext, Result) :-
     parse_clause_head(Varset, HeadTerm, HeadResult),
-    ( HeadResult = ok({Name, Args}),
-        parse_clause_body(BodyTerm, BodyResult),
-        ( BodyResult = ok(BodyGoal),
-            Result = ok(clause(sym_name([], Name), Args, BodyGoal, coerce(Varset), ClauseContext))
-        ; BodyResult = error(Errors),
-            Result = error(Errors)
-        )
-    ; HeadResult = error(Errors),
-        Result = error(Errors)
-    ).
+    parse_clause_body(BodyTerm, BodyResult),
+    Combine = (func({Name, Args}, BodyGoal) = clause(sym_name([], Name), Args, BodyGoal, coerce(Varset), ClauseContext)),
+    Result = combine_results(Combine, HeadResult, BodyResult).
 
 %------------------------------------------------------------------------------%
 
@@ -149,30 +136,14 @@ parse_clause_body(Term @ functor(Const, Args, Context), Result) :-
             % Parse a conjunction
         ( Atom = ",", Args = [TermA, TermB] ->
             parse_clause_body(TermA, ResultA),
-            ( ResultA = ok(GoalA),
-                parse_clause_body(TermB, ResultB),
-                ( ResultB = ok(GoalB),
-                    Result = ok(conj(GoalA, GoalB) - Context)
-                ; ResultB = error(Errors),
-                    Result = error(Errors)
-                )
-            ; ResultA = error(Errors),
-                Result = error(Errors)
-            )
+            parse_clause_body(TermB, ResultB),
+            Result = combine_results(func(GoalA, GoalB) = conj(GoalA, GoalB) - Context, ResultA, ResultB)
 
             % Parse a disjunction
         ; Atom = ";", Args = [TermA, TermB] ->
             parse_clause_body(TermA, ResultA),
-            ( ResultA = ok(GoalA),
-                parse_clause_body(TermB, ResultB),
-                ( ResultB = ok(GoalB),
-                    Result = ok(disj(GoalA, GoalB) - Context)
-                ; ResultB = error(Errors),
-                    Result = error(Errors)
-                )
-            ; ResultA = error(Errors),
-                Result = error(Errors)
-            )
+            parse_clause_body(TermB, ResultB),
+            Result = combine_results(func(GoalA, GoalB) = disj(GoalA, GoalB) - Context, ResultA, ResultB)
 
             % Parse a unification or object call
         ; Atom = "=", Args = [TermA, TermB] ->
@@ -237,16 +208,8 @@ parse_type_body(Term, Result) :-
 parse_data_constructor_list(Term, Result) :-
     ( Term = functor(atom(";"), [TermA, TermB], _Context) ->
         parse_data_constructor_list(TermA, ResultA),
-        ( ResultA = ok(ListA),
-            parse_data_constructor_list(TermB, ResultB),
-            ( ResultB = ok(ListB),
-                Result = ok(ListA ++ ListB)
-            ; ResultB = error(ErrsB),
-                Result = error(ErrsB)
-            )
-        ; ResultA = error(ErrsA),
-            Result = error(ErrsA)
-        )
+        parse_data_constructor_list(TermB, ResultB),
+        Result = combine_results(list.append, ResultA, ResultB)
     ;
         parse_data_constructor(Term, DataConsResult),
         ( DataConsResult = ok(DataConstructor),
@@ -353,13 +316,6 @@ parse_constraint(Term, Result) :-
         Result = error([simple_error_msg(get_term_context(Term), "Expected a name")])
     ).
 
-:- func combine_results(func(T, T) = T, parse_result(T), parse_result(T)) = parse_result(T).
-
-combine_results(Combine, ok(A), ok(B)) = ok(Combine(A, B)).
-combine_results(_Combine, error(A), ok(_B)) = error(A).
-combine_results(_Combine, ok(_A), error(B)) = error(B).
-combine_results(_Combine, error(A), error(B)) = error(A ++ B).
-
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
@@ -426,19 +382,7 @@ parse_type_list([], ok([])).
 parse_type_list([Term | Terms], Result) :-
     parse_type(Term, ResultTerm),
     parse_type_list(Terms, ResultTerms),
-    ( ResultTerm = ok(Type),
-        ( ResultTerms = ok(Types),
-            Result = ok([Type | Types])
-        ; ResultTerms = error(Errors),
-            Result = error(Errors)
-        )
-    ; ResultTerm = error(Errors),
-        ( ResultTerms = ok(_),
-            Result = error(Errors)
-        ; ResultTerms = error(Errors2),
-            Result = error(Errors ++ Errors2)
-        )
-    ).
+    Result = combine_results(list.cons, ResultTerm, ResultTerms).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
@@ -449,17 +393,9 @@ parse_list(ParseListItem, Term, Result) :-
     ( Term = term.functor(atom("[]"), [], _) ->
         Result = ok([])
     ; Term = term.functor(atom("[|]"), [HeadTerm, TailTerm], _) ->
+        ParseListItem(HeadTerm, ItemResult),
         parse_list(ParseListItem, TailTerm, Result0),
-        ( Result0 = ok(List),
-            ParseListItem(HeadTerm, ItemResult),
-            ( ItemResult = ok(Item),
-                Result = ok([Item | List])
-            ; ItemResult = error(Errors),
-                Result = error(Errors)
-            )
-        ; Result0 = error(Errors),
-            Result = error(Errors)
-        )
+        Result = combine_results(list.cons, ItemResult, Result0)
     ;
         Result = error([simple_error_msg(get_term_context(Term), "Expected a list")])
     ).
@@ -481,6 +417,16 @@ var_list([Term | Terms], [Var | Vars]) :-
 :- func simple_error_msg(term.context, string) = error_spec.
 
 simple_error_msg(Context, Msg) = error_spec(severity_error, [simple_msg(Context, [always([words(Msg)])])]).
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
+:- func combine_results(func(T, U) = V, parse_result(T), parse_result(U)) = parse_result(V).
+
+combine_results(Combine, ok(A), ok(B)) = ok(Combine(A, B)).
+combine_results(_Combine, error(A), ok(_B)) = error(A).
+combine_results(_Combine, ok(_A), error(B)) = error(B).
+combine_results(_Combine, error(A), error(B)) = error(A ++ B).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
