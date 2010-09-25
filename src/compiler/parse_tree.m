@@ -324,6 +324,45 @@ parse_typeclass_method(TVarset, Term, Result) :-
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
+:- pred parse_constraint_list(term::in, parse_result(list(prog_constraint))::out) is det.
+
+parse_constraint_list(Term, Result) :-
+    ( Term = functor(atom(","), [TermA, TermB], _) ->
+        parse_constraint_list(TermA, ResultA),
+        parse_constraint_list(TermB, ResultB),
+        Result = combine_results(list.append, ResultA, ResultB)
+    ;
+        parse_constraint(Term, ConstraintResult),
+        ( ConstraintResult = ok(Constraint),
+            Result = ok([Constraint])
+        ; ConstraintResult = error(Errs),
+            Result = error(Errs)
+        )
+    ).
+
+:- pred parse_constraint(term::in, parse_result(prog_constraint)::out) is det.
+
+parse_constraint(Term, Result) :-
+    ( parse_qualified_name(Term, Qualifiers, Name, Args) ->
+        ( var_list(Args, TypeVars) ->
+            Result = ok(prog_constraint(sym_name(Qualifiers, Name), list.map(func(V) = type_variable(V), TypeVars)))
+        ;
+            Result = error([simple_error_msg(get_term_context(Term), "Expected a list of type variables")])
+        )
+    ;
+        Result = error([simple_error_msg(get_term_context(Term), "Expected a name")])
+    ).
+
+:- func combine_results(func(T, T) = T, parse_result(T), parse_result(T)) = parse_result(T).
+
+combine_results(Combine, ok(A), ok(B)) = ok(Combine(A, B)).
+combine_results(_Combine, error(A), ok(_B)) = error(A).
+combine_results(_Combine, ok(_A), error(B)) = error(B).
+combine_results(_Combine, error(A), error(B)) = error(A ++ B).
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
 :- pred parse_qualified_name(term::in, list(string)::out, string::out, list(term)::out) is semidet.
 
 parse_qualified_name(functor(atom(Atom), Args, _Context), Qualifiers, Name, NameArgs) :-
