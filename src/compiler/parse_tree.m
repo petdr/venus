@@ -90,16 +90,6 @@ parse_item(Varset, Term, Result) :-
         ;
             Result = error([simple_error_msg(Context, "Unable to parse predicate declaration")])
         )
-    ; Term = term.functor(term.atom(":-"), [functor(atom("type"), [TypeTerm], _)], Context) ->
-        ( TypeTerm = functor(atom("--->"), [TypeNameTerm, TypeBodyTerm], _) ->
-            parse_type_head(TypeNameTerm, TypeNameResult),
-            parse_type_body(TypeBodyTerm, TypeBodyResult),
-            Combine = (func({TypeName, TypeVars}, TypeBody) =
-                type_defn(type_defn(TypeName, TypeVars, coerce(Varset), TypeBody, Context))),
-            Result = combine_results(Combine, TypeNameResult, TypeBodyResult)
-        ;
-            Result = error([simple_error_msg(Context, "Unable to parse type definition")])
-        )
     ; Term = term.functor(term.atom(":-"), [functor(atom("typeclass"), [TypeClassTerm], _)], Context) ->
         parse_typeclass(Varset, Context, TypeClassTerm, Result)
     ;
@@ -161,12 +151,103 @@ parse_decl_attribute(Functor, ArgTerms, Attribute, SubTerm) :-
 :- pred parse_attributed_decl(varset::in,
     string::in, list(term)::in, list(decl_attribute)::in, context::in, parse_result(item)::out) is semidet.
 
-parse_attributed_decl(_Varset, Functor, ArgTerms, _Attrs, Context, Result) :-
+parse_attributed_decl(Varset, Functor, ArgTerms, Attrs, Context, Result) :-
     (
         Functor = "pred",
         ArgTerms = [_DeclTerm],
         Result = error([simple_error_msg(Context, "don't handle pred's yet")])
+    ;
+        Functor = "type",
+        ArgTerms = [TypeTerm],
+            % XXX Check no attributes
+        parse_type_defn(Varset, TypeTerm, Context, Result0),
+        check_no_attributes(Attrs, Context, Result0, Result)
     ).
+
+:- pred check_no_attributes(list(decl_attribute)::in, context::in, parse_result(T)::in, parse_result(T)::out) is det.
+
+check_no_attributes([], _Context, !Result).
+check_no_attributes([_|_], Context, _, Result) :-
+        % XXX improve this error message
+    Result = error([simple_error_msg(Context, "Decl shouldn't have attributes")]).
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
+:- pred parse_type_defn(varset::in, term::in, context::in, parse_result(item)::out) is det.
+
+parse_type_defn(Varset, TypeTerm, Context, Result) :-
+    ( TypeTerm = functor(atom("--->"), [TypeNameTerm, TypeBodyTerm], _) ->
+        parse_type_head(TypeNameTerm, TypeNameResult),
+        parse_type_body(TypeBodyTerm, TypeBodyResult),
+        Combine = (func({TypeName, TypeVars}, TypeBody) =
+            type_defn(type_defn(TypeName, TypeVars, coerce(Varset), TypeBody, Context))),
+        Result = combine_results(Combine, TypeNameResult, TypeBodyResult)
+    ;
+        Result = error([simple_error_msg(Context, "Unable to parse type definition")])
+    ).
+
+%------------------------------------------------------------------------------%
+
+:- pred parse_type_head(term::in, parse_result({sym_name, list(prog_type)})::out) is det.
+
+parse_type_head(Term @ functor(_Const, _Args, Context), Result) :-
+    ( parse_sym_name(Term, SymName, Args) ->
+        ( var_list(Args, TypeVars) ->
+            Result = ok({SymName, list.map(func(V) = type_variable(V), TypeVars)})
+        ;
+            Result = error([simple_error_msg(Context, "Expected a list of type variables")])
+        )
+    ;
+        Result = error([simple_error_msg(Context, "Expected a name")])
+    ).
+parse_type_head(variable(_Var, Context), Result) :-
+    Result = error([simple_error_msg(Context, "Unexpected variable")]).
+    
+%------------------------------------------------------------------------------%
+
+:- pred parse_type_body(term::in, parse_result(item_type_body)::out) is det.
+
+parse_type_body(Term, Result) :-
+    parse_data_constructor_list(Term, ConsListResult),
+    ( ConsListResult = ok(List),
+        Result = ok(discriminated_union(List))
+    ; ConsListResult = error(Errs),
+        Result = error(Errs)
+    ).
+
+:- pred parse_data_constructor_list(term::in, parse_result(list(item_data_constructor))::out) is det.
+
+parse_data_constructor_list(Term, Result) :-
+    ( Term = functor(atom(";"), [TermA, TermB], _Context) ->
+        parse_data_constructor_list(TermA, ResultA),
+        parse_data_constructor_list(TermB, ResultB),
+        Result = combine_results(list.append, ResultA, ResultB)
+    ;
+        parse_data_constructor(Term, DataConsResult),
+        ( DataConsResult = ok(DataConstructor),
+            Result = ok([DataConstructor])
+        ; DataConsResult = error(Errs),
+            Result = error(Errs)
+        )
+    ).
+
+:- pred parse_data_constructor(term::in, parse_result(item_data_constructor)::out) is det.
+
+parse_data_constructor(Term, Result) :-
+    ( parse_sym_name(Term, SymName, TermArgs) ->
+        parse_type_list(TermArgs, TypeListResult),
+        ( TypeListResult = ok(Types),
+            Result = ok(data_constructor(SymName, Types, get_term_context(Term)))
+        ; TypeListResult = error(Errs),
+            Result = error(Errs)
+        )
+    ;
+        Result = error([simple_error_msg(get_term_context(Term), "Expected a data constructor")])
+    ).
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
@@ -241,65 +322,6 @@ parse_object_method(functor(atom("."), Args, _Context), Method) :-
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
-:- pred parse_type_head(term::in, parse_result({sym_name, list(prog_type)})::out) is det.
-
-parse_type_head(Term @ functor(_Const, _Args, Context), Result) :-
-    ( parse_sym_name(Term, SymName, Args) ->
-        ( var_list(Args, TypeVars) ->
-            Result = ok({SymName, list.map(func(V) = type_variable(V), TypeVars)})
-        ;
-            Result = error([simple_error_msg(Context, "Expected a list of type variables")])
-        )
-    ;
-        Result = error([simple_error_msg(Context, "Expected a name")])
-    ).
-parse_type_head(variable(_Var, Context), Result) :-
-    Result = error([simple_error_msg(Context, "Unexpected variable")]).
-    
-%------------------------------------------------------------------------------%
-
-:- pred parse_type_body(term::in, parse_result(item_type_body)::out) is det.
-
-parse_type_body(Term, Result) :-
-    parse_data_constructor_list(Term, ConsListResult),
-    ( ConsListResult = ok(List),
-        Result = ok(discriminated_union(List))
-    ; ConsListResult = error(Errs),
-        Result = error(Errs)
-    ).
-
-:- pred parse_data_constructor_list(term::in, parse_result(list(item_data_constructor))::out) is det.
-
-parse_data_constructor_list(Term, Result) :-
-    ( Term = functor(atom(";"), [TermA, TermB], _Context) ->
-        parse_data_constructor_list(TermA, ResultA),
-        parse_data_constructor_list(TermB, ResultB),
-        Result = combine_results(list.append, ResultA, ResultB)
-    ;
-        parse_data_constructor(Term, DataConsResult),
-        ( DataConsResult = ok(DataConstructor),
-            Result = ok([DataConstructor])
-        ; DataConsResult = error(Errs),
-            Result = error(Errs)
-        )
-    ).
-
-:- pred parse_data_constructor(term::in, parse_result(item_data_constructor)::out) is det.
-
-parse_data_constructor(Term, Result) :-
-    ( parse_sym_name(Term, SymName, TermArgs) ->
-        parse_type_list(TermArgs, TypeListResult),
-        ( TypeListResult = ok(Types),
-            Result = ok(data_constructor(SymName, Types, get_term_context(Term)))
-        ; TypeListResult = error(Errs),
-            Result = error(Errs)
-        )
-    ;
-        Result = error([simple_error_msg(get_term_context(Term), "Expected a data constructor")])
-    ).
-
-%------------------------------------------------------------------------------%
-%------------------------------------------------------------------------------%
 
 :- pred parse_typeclass(varset::in, term.context::in, term::in, parse_result(item)::out) is det.
 
