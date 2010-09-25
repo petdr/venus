@@ -103,8 +103,8 @@ parse_item(Varset, Term, Result) :-
         ;
             Result = error([simple_error_msg(Context, "Unable to parse type definition")])
         )
-    ; Term = term.functor(term.atom(":-"), [functor(atom("typeclass"), [TypeClassTerm], _)], _Context) ->
-        parse_typeclass(TypeClassTerm, Result)
+    ; Term = term.functor(term.atom(":-"), [functor(atom("typeclass"), [TypeClassTerm], _)], Context) ->
+        parse_typeclass(Varset, Context, TypeClassTerm, Result)
     ;
         Result = error([simple_error_msg(get_term_context(Term), "Unable to parse the term")])
     ).
@@ -273,27 +273,52 @@ parse_data_constructor(Term, Result) :-
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
-:- pred parse_typeclass(term::in, parse_result(item)::out) is det.
+:- pred parse_typeclass(varset::in, term.context::in, term::in, parse_result(item)::out) is det.
 
-parse_typeclass(Term, Result) :-
-    ( Term = term.functor(atom("where"), [NameTerm, _ListTerm], _Context) ->
+parse_typeclass(Varset, TypeclassContext, Term, Result) :-
+    ( Term = term.functor(atom("where"), [NameTerm, ListTerm], _Context) ->
         ( parse_qualified_name(NameTerm, Qualifiers, Name, TermArgs) ->
             (
                 var_list(TermArgs, TypeVars),
                 TermArgs = [_|_]
             ->
-                TypeParams = list.map(func(V) = type_variable(V), TypeVars),
-                TypeClassDefn = typeclass_defn(sym_name(Qualifiers, Name), TypeParams),
-                Result = ok(typeclass_defn(TypeClassDefn))
+                TVarset = coerce(Varset),
+                parse_list(parse_typeclass_method(TVarset), ListTerm, MethodsResult),
+                ( MethodsResult = ok(Methods),
+                    TypeParams = list.map(func(V) = type_variable(V), TypeVars),
+                    SymName = sym_name(Qualifiers, Name),
+                    TypeClassDefn = typeclass_defn(SymName, TypeParams, TVarset, Methods, TypeclassContext),
+                    Result = ok(typeclass_defn(TypeClassDefn))
+                ; MethodsResult = error(Errs),
+                    Result = error(Errs)
+                )
             ;
                 Msg = "Expected a list of type variables in the typeclass name",
-                Result = error([simple_error_msg(get_term_context(Term), Msg)])
+                Result = error([simple_error_msg(get_term_context(NameTerm), Msg)])
             )
         ;
             Result = error([simple_error_msg(get_term_context(Term), "Unable to parse the typeclass name")])
         )
     ;
-        Result = error([simple_error_msg(get_term_context(Term), "Unable to parse the typeclass")])
+        Result = error([simple_error_msg(TypeclassContext, "Unable to parse the typeclass")])
+    ).
+
+:- pred parse_typeclass_method(tvarset::in, term::in, parse_result(class_method)::out) is det.
+
+parse_typeclass_method(TVarset, Term, Result) :-
+    ( Term = functor(atom("pred"), [PredTerm], Context) ->
+        ( parse_qualified_name(PredTerm, Qualifiers, Name, PredArgs) ->
+            parse_type_list(PredArgs, ResultPredArgs),
+            ( ResultPredArgs = ok(Types),
+                Result = ok(class_method(sym_name(Qualifiers, Name), Types, TVarset, Context))
+            ; ResultPredArgs = error(Errors),
+                Result = error(Errors)
+            )
+        ;
+            Result = error([simple_error_msg(get_term_context(PredTerm), "typeclass method name")])
+        )
+    ;
+        Result = error([simple_error_msg(get_term_context(Term), "Expected pred method")])
     ).
 
 %------------------------------------------------------------------------------%
@@ -374,6 +399,30 @@ parse_type_list([Term | Terms], Result) :-
         ; ResultTerms = error(Errors2),
             Result = error(Errors ++ Errors2)
         )
+    ).
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
+:- pred parse_list(pred(term, parse_result(T))::in(pred(in, out) is det), term::in, parse_result(list(T))::out) is det.
+
+parse_list(ParseListItem, Term, Result) :-
+    ( Term = term.functor(atom("[]"), [], _) ->
+        Result = ok([])
+    ; Term = term.functor(atom("[|]"), [HeadTerm, TailTerm], _) ->
+        parse_list(ParseListItem, TailTerm, Result0),
+        ( Result0 = ok(List),
+            ParseListItem(HeadTerm, ItemResult),
+            ( ItemResult = ok(Item),
+                Result = ok([Item | List])
+            ; ItemResult = error(Errors),
+                Result = error(Errors)
+            )
+        ; Result0 = error(Errors),
+            Result = error(Errors)
+        )
+    ;
+        Result = error([simple_error_msg(get_term_context(Term), "Expected a list")])
     ).
 
 %------------------------------------------------------------------------------%

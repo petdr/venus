@@ -62,9 +62,19 @@
 :- type item_typeclass_defn
     --->    typeclass_defn(
                 typeclass_name      :: sym_name,
-                typeclass_args      :: list(type_param)
+                typeclass_args      :: list(type_param),
+                typeclass_tvarset   :: tvarset,
+                typeclass_methods   :: list(class_method),
+                typeclass_context   :: term.context
             ).
 
+:- type class_method
+    --->    class_method(
+                method_name         :: sym_name,
+                method_args         :: list(prog_type),
+                method_tvarset      :: tvarset,
+                method_context      :: term.context
+            ).
 
 :- type goal == pair(goal_expr, term.context).
                 
