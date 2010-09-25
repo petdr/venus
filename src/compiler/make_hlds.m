@@ -244,6 +244,8 @@ goal_to_hlds_goal(unify(TermA, TermB) - _Context, Goal, !Varset) :-
             Goal = conj(GoalsListA ++ GoalsListB)
         )
     ).
+goal_to_hlds_goal(true_expr - _Context, conj([]), !Varset).
+goal_to_hlds_goal(fail_expr - _Context, disj([]), !Varset).
 goal_to_hlds_goal(call(Name, Args) - _Context, Goal, !Varset) :-
     list.map2_foldl(term_to_shf, Args, ArgVars, GoalsList, !Varset),
     Goal = conj([call(Name, ArgVars) | list.condense(GoalsList)]).

@@ -82,6 +82,8 @@
     --->    conj(goal, goal)
     ;       disj(goal, goal)
     ;       unify(prog_term, prog_term)
+    ;       true_expr
+    ;       fail_expr
     ;       call(sym_name, list(prog_term))
     ;       object_void_call(object_method)
     ;       object_function_call(prog_term, object_method)

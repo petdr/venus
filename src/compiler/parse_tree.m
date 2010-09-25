@@ -70,17 +70,17 @@ parse_items(FileName, Items, Errors, !IO) :-
 
 parse_item(Varset, Term, Result) :-
     ( Term = term.functor(term.atom(":-"), [DeclTerm], Context) ->
+            % Parse a declaration
         parse_decl(Varset, DeclTerm, Context, Result)
 
     ; Term = term.functor(term.atom(":-"), [HeadTerm, BodyTerm], Context) ->
-        parse_clause(Varset, HeadTerm, BodyTerm, Context, ClauseResult),
-        ( ClauseResult = ok(Clause),
-            Result = ok(clause(Clause))
-        ; ClauseResult = error(Errors),
-            Result = error(Errors)
-        )
+            % Parse a rule
+        parse_clause(Varset, HeadTerm, BodyTerm, Context, Result)
     ;
-        Result = error([simple_error_msg(get_term_context(Term), "Unable to parse the term")])
+            % Parse a fact
+        Context = get_term_context(Term),
+        BodyTerm = term.functor(term.atom("true"), [], Context),
+        parse_clause(Varset, Term, BodyTerm, Context, Result)
     ).
 
 %------------------------------------------------------------------------------%
@@ -310,13 +310,17 @@ parse_typeclass_method(TVarset, Term, Result) :-
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
-:- pred parse_clause(varset::in, term::in, term::in, term.context::in, parse_result(item_clause)::out) is det.
+:- pred parse_clause(varset::in, term::in, term::in, term.context::in, parse_result(item)::out) is det.
 
 parse_clause(Varset, HeadTerm, BodyTerm, ClauseContext, Result) :-
     parse_clause_head(Varset, HeadTerm, HeadResult),
     parse_clause_body(BodyTerm, BodyResult),
-    Combine = (func({Name, Args}, BodyGoal) = clause(sym_name([], Name), Args, BodyGoal, coerce(Varset), ClauseContext)),
-    Result = combine_results(Combine, HeadResult, BodyResult).
+    Result = combine_results(to_clause_item(Varset, ClauseContext), HeadResult, BodyResult).
+
+:- func to_clause_item(varset, term.context, {string, list(prog_term)}, goal) = item.
+
+to_clause_item(Varset, Context, {Name, Args}, BodyGoal) =
+    clause(clause(sym_name([], Name), Args, BodyGoal, coerce(Varset),Context)).
 
 %------------------------------------------------------------------------------%
 
@@ -356,6 +360,10 @@ parse_clause_body(Term @ functor(Const, Args, Context), Result) :-
             ;
                 Result = ok(unify(coerce(TermA), coerce(TermB)) - Context)
             )
+        ; Atom = "true", Args = [] ->
+            Result = ok(true_expr - Context)
+        ; Atom = "fail", Args = [] ->
+            Result = ok(fail_expr - Context)
         ; parse_object_method(Term, Method) ->
             Result = ok(object_void_call(Method) - Context)
         ; parse_sym_name(Term, SymName, SymNameArgs) ->
