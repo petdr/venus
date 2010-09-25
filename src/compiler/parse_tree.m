@@ -79,17 +79,6 @@ parse_item(Varset, Term, Result) :-
         ; ClauseResult = error(Errors),
             Result = error(Errors)
         )
-    ; Term = term.functor(term.atom(":-"), [functor(atom("pred"), [PredTerm], _)], Context) ->
-        ( parse_sym_name(PredTerm, SymName, PredArgs) ->
-            parse_type_list(PredArgs, ResultPredArgs),
-            ( ResultPredArgs = ok(Types),
-                Result = ok(pred_decl(pred_decl(SymName, Types, coerce(Varset), Context)))
-            ; ResultPredArgs = error(Errors),
-                Result = error(Errors)
-            )
-        ;
-            Result = error([simple_error_msg(Context, "Unable to parse predicate declaration")])
-        )
     ;
         Result = error([simple_error_msg(get_term_context(Term), "Unable to parse the term")])
     ).
@@ -152,8 +141,8 @@ parse_decl_attribute(Functor, ArgTerms, Attribute, SubTerm) :-
 parse_attributed_decl(Varset, Functor, ArgTerms, Attrs, Context, Result) :-
     (
         Functor = "pred",
-        ArgTerms = [_DeclTerm],
-        Result = error([simple_error_msg(Context, "don't handle pred's yet")])
+        ArgTerms = [PredTerm],
+        parse_pred_decl(Varset, PredTerm, Context, Result)
     ;
         Functor = "type",
         ArgTerms = [TypeTerm],
@@ -172,6 +161,23 @@ check_no_attributes([], _Context, !Result).
 check_no_attributes([_|_], Context, _, Result) :-
         % XXX improve this error message
     Result = error([simple_error_msg(Context, "Decl shouldn't have attributes")]).
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
+:- pred parse_pred_decl(varset::in, term::in, context::in, parse_result(item)::out) is det.
+
+parse_pred_decl(Varset, PredTerm, Context, Result) :-
+    ( parse_sym_name(PredTerm, SymName, PredArgs) ->
+        parse_type_list(PredArgs, ResultPredArgs),
+        ( ResultPredArgs = ok(Types),
+            Result = ok(pred_decl(pred_decl(SymName, Types, coerce(Varset), Context)))
+        ; ResultPredArgs = error(Errors),
+            Result = error(Errors)
+        )
+    ;
+        Result = error([simple_error_msg(Context, "Unable to parse predicate declaration")])
+    ).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
