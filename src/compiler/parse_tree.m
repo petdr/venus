@@ -90,8 +90,6 @@ parse_item(Varset, Term, Result) :-
         ;
             Result = error([simple_error_msg(Context, "Unable to parse predicate declaration")])
         )
-    ; Term = term.functor(term.atom(":-"), [functor(atom("typeclass"), [TypeClassTerm], _)], Context) ->
-        parse_typeclass(Varset, Context, TypeClassTerm, Result)
     ;
         Result = error([simple_error_msg(get_term_context(Term), "Unable to parse the term")])
     ).
@@ -159,8 +157,12 @@ parse_attributed_decl(Varset, Functor, ArgTerms, Attrs, Context, Result) :-
     ;
         Functor = "type",
         ArgTerms = [TypeTerm],
-            % XXX Check no attributes
         parse_type_defn(Varset, TypeTerm, Context, Result0),
+        check_no_attributes(Attrs, Context, Result0, Result)
+    ;
+        Functor = "typeclass",
+        ArgTerms = [TypeclassTerm],
+        parse_typeclass(Varset, TypeclassTerm, Context, Result0),
         check_no_attributes(Attrs, Context, Result0, Result)
     ).
 
@@ -249,6 +251,56 @@ parse_data_constructor(Term, Result) :-
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
+:- pred parse_typeclass(varset::in, term::in, term.context::in, parse_result(item)::out) is det.
+
+parse_typeclass(Varset, Term, TypeclassContext, Result) :-
+    ( Term = term.functor(atom("where"), [NameTerm, ListTerm], _Context) ->
+        ( parse_sym_name(NameTerm, SymName, TermArgs) ->
+            (
+                var_list(TermArgs, TypeVars),
+                TermArgs = [_|_]
+            ->
+                TVarset = coerce(Varset),
+                parse_list(parse_typeclass_method(TVarset), ListTerm, MethodsResult),
+                ( MethodsResult = ok(Methods),
+                    TypeParams = list.map(func(V) = type_variable(V), TypeVars),
+                    TypeClassDefn = typeclass_defn(SymName, TypeParams, TVarset, Methods, TypeclassContext),
+                    Result = ok(typeclass_defn(TypeClassDefn))
+                ; MethodsResult = error(Errs),
+                    Result = error(Errs)
+                )
+            ;
+                Msg = "Expected a list of type variables in the typeclass name",
+                Result = error([simple_error_msg(get_term_context(NameTerm), Msg)])
+            )
+        ;
+            Result = error([simple_error_msg(get_term_context(Term), "Unable to parse the typeclass name")])
+        )
+    ;
+        Result = error([simple_error_msg(TypeclassContext, "Unable to parse the typeclass")])
+    ).
+
+:- pred parse_typeclass_method(tvarset::in, term::in, parse_result(class_method)::out) is det.
+
+parse_typeclass_method(TVarset, Term, Result) :-
+    ( Term = functor(atom("pred"), [PredTerm], Context) ->
+        ( parse_sym_name(PredTerm, SymName, PredArgs) ->
+            parse_type_list(PredArgs, ResultPredArgs),
+            ( ResultPredArgs = ok(Types),
+                Result = ok(class_method(SymName, Types, TVarset, Context))
+            ; ResultPredArgs = error(Errors),
+                Result = error(Errors)
+            )
+        ;
+            Result = error([simple_error_msg(get_term_context(PredTerm), "typeclass method name")])
+        )
+    ;
+        Result = error([simple_error_msg(get_term_context(Term), "Expected pred method")])
+    ).
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
@@ -318,57 +370,6 @@ parse_clause_body(variable(_Var, Context), Result) :-
 parse_object_method(functor(atom("."), Args, _Context), Method) :-
     Args = [variable(ObjectVar, _VarContext), functor(atom(MethodName), MethodArgs, _MethodContext)],
     Method = object_method(coerce_var(ObjectVar), sym_name([], MethodName), list.map(coerce, MethodArgs)).
-
-%------------------------------------------------------------------------------%
-%------------------------------------------------------------------------------%
-
-
-:- pred parse_typeclass(varset::in, term.context::in, term::in, parse_result(item)::out) is det.
-
-parse_typeclass(Varset, TypeclassContext, Term, Result) :-
-    ( Term = term.functor(atom("where"), [NameTerm, ListTerm], _Context) ->
-        ( parse_sym_name(NameTerm, SymName, TermArgs) ->
-            (
-                var_list(TermArgs, TypeVars),
-                TermArgs = [_|_]
-            ->
-                TVarset = coerce(Varset),
-                parse_list(parse_typeclass_method(TVarset), ListTerm, MethodsResult),
-                ( MethodsResult = ok(Methods),
-                    TypeParams = list.map(func(V) = type_variable(V), TypeVars),
-                    TypeClassDefn = typeclass_defn(SymName, TypeParams, TVarset, Methods, TypeclassContext),
-                    Result = ok(typeclass_defn(TypeClassDefn))
-                ; MethodsResult = error(Errs),
-                    Result = error(Errs)
-                )
-            ;
-                Msg = "Expected a list of type variables in the typeclass name",
-                Result = error([simple_error_msg(get_term_context(NameTerm), Msg)])
-            )
-        ;
-            Result = error([simple_error_msg(get_term_context(Term), "Unable to parse the typeclass name")])
-        )
-    ;
-        Result = error([simple_error_msg(TypeclassContext, "Unable to parse the typeclass")])
-    ).
-
-:- pred parse_typeclass_method(tvarset::in, term::in, parse_result(class_method)::out) is det.
-
-parse_typeclass_method(TVarset, Term, Result) :-
-    ( Term = functor(atom("pred"), [PredTerm], Context) ->
-        ( parse_sym_name(PredTerm, SymName, PredArgs) ->
-            parse_type_list(PredArgs, ResultPredArgs),
-            ( ResultPredArgs = ok(Types),
-                Result = ok(class_method(SymName, Types, TVarset, Context))
-            ; ResultPredArgs = error(Errors),
-                Result = error(Errors)
-            )
-        ;
-            Result = error([simple_error_msg(get_term_context(PredTerm), "typeclass method name")])
-        )
-    ;
-        Result = error([simple_error_msg(get_term_context(Term), "Expected pred method")])
-    ).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
