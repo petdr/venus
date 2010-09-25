@@ -69,7 +69,10 @@ parse_items(FileName, Items, Errors, !IO) :-
 :- pred parse_item(varset::in, term::in, parse_result(item)::out) is det.
 
 parse_item(Varset, Term, Result) :-
-    ( Term = term.functor(term.atom(":-"), [HeadTerm, BodyTerm], Context) ->
+    ( Term = term.functor(term.atom(":-"), [DeclTerm], Context) ->
+        parse_decl(Varset, DeclTerm, Context, Result)
+
+    ; Term = term.functor(term.atom(":-"), [HeadTerm, BodyTerm], Context) ->
         parse_clause(Varset, HeadTerm, BodyTerm, Context, ClauseResult),
         ( ClauseResult = ok(Clause),
             Result = ok(clause(Clause))
@@ -101,6 +104,68 @@ parse_item(Varset, Term, Result) :-
         parse_typeclass(Varset, Context, TypeClassTerm, Result)
     ;
         Result = error([simple_error_msg(get_term_context(Term), "Unable to parse the term")])
+    ).
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
+:- pred parse_decl(varset::in, term::in, context::in, parse_result(item)::out) is det.
+
+parse_decl(Varset, Term, _Context, Result) :-
+    parse_attrs_and_decl(Varset, Term, [], Result).
+
+%------------------------------------------------------------------------------%
+
+:- type decl_attribute
+    --->    decl_attribute_constraints(quant_type, term)
+    .
+
+:- type quant_type
+    --->    quant_type_univ
+    .
+
+:- pred parse_attrs_and_decl(varset::in, term::in, list(decl_attribute)::in, parse_result(item)::out) is det.
+
+parse_attrs_and_decl(Varset, Term, !.Attributes, Result) :-
+    ( Term = term.functor(term.atom(Functor), Args, Context) ->
+        (
+            parse_decl_attribute(Functor, Args, Attribute, SubTerm)
+        ->
+            !:Attributes = [Attribute | !.Attributes],
+            parse_attrs_and_decl(Varset, SubTerm, !.Attributes, Result)
+        ;
+            parse_attributed_decl(Varset, Functor, Args, !.Attributes, Context, Result0)
+        ->
+            Result = Result0
+        ;
+            Result = error([simple_error_msg(get_term_context(Term), "unrecognized declaration")])
+        )
+    ;
+        Result = error([simple_error_msg(get_term_context(Term), "atom expected after :-")])
+    ).
+
+%------------------------------------------------------------------------------%
+
+:- pred parse_decl_attribute(string::in, list(term)::in, decl_attribute::out, term::out) is semidet.
+
+parse_decl_attribute(Functor, ArgTerms, Attribute, SubTerm) :-
+    (
+        Functor = "<=",
+        ArgTerms = [SubTerm, ConstraintsTerm],
+        Attribute = decl_attribute_constraints(quant_type_univ, ConstraintsTerm)
+    ).
+
+%------------------------------------------------------------------------------%
+
+    % The decl_attribute are in the order outermost to innermost.
+:- pred parse_attributed_decl(varset::in,
+    string::in, list(term)::in, list(decl_attribute)::in, context::in, parse_result(item)::out) is semidet.
+
+parse_attributed_decl(_Varset, Functor, ArgTerms, _Attrs, Context, Result) :-
+    (
+        Functor = "pred",
+        ArgTerms = [_DeclTerm],
+        Result = error([simple_error_msg(Context, "don't handle pred's yet")])
     ).
 
 %------------------------------------------------------------------------------%
