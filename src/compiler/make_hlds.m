@@ -71,12 +71,14 @@ make_hlds(ModuleName, Items, !:HLDS, !IO) :-
 
 process_decls(_Info, clause(_), !HLDS).
 process_decls(Info, typeclass_defn(T), !HLDS) :-
-    T = typeclass_defn(Name, _Params, _TVarset, Methods, _Context),
+    T = typeclass_defn(Name, Params, _TVarset, Methods, _Context),
+    Constraint = prog_constraint(Name, Params),
+
     get_name_and_status(Info, Name, FullName, _ImportStatus),
 
         % XXX the typeclass is in the module determined by get_name_and_status.
     InfoForTypeclass = Info ^ imp_module_name := yes(FullName ^ module_qualifiers),
-    list.foldl(process_typeclass_method(InfoForTypeclass), Methods, !HLDS).
+    list.foldl(process_typeclass_method(InfoForTypeclass, Constraint), Methods, !HLDS).
 process_decls(Info, type_defn(T), !HLDS) :-
     T = type_defn(Name, Params, TVarset, Body, Context),
 
@@ -98,12 +100,13 @@ process_decls(Info, type_defn(T), !HLDS) :-
     !HLDS ^ type_table := TypeTable.
 
 process_decls(Info, pred_decl(PredDecl), !HLDS) :-
-    PredDecl = pred_decl(PredName, PredTypes, PredTVarset, _PredUnivConstraints, _PredContext),
+    PredDecl = pred_decl(PredName, PredTypes, PredTVarset, PredUnivConstraints, _PredContext),
     Arity = list.length(PredTypes),
 
     get_name_and_status(Info, PredName, FullName, ImportStatus),
 
-    Pred = hlds_pred(invalid_pred_id, FullName, Arity, ImportStatus, [], varset.init, PredTypes, PredTVarset, no_goal),
+    Pred = hlds_pred(invalid_pred_id, FullName, Arity, ImportStatus,
+            [], varset.init, PredTypes, PredUnivConstraints, PredTVarset, no_goal),
 
     set_hlds_pred(Pred, _PredId, !.HLDS ^ predicate_table, PredTable),
     !HLDS ^ predicate_table := PredTable.
@@ -135,15 +138,16 @@ current_module_name(Info) =
         Info ^ mi_module_name
     ).
 
-:- pred process_typeclass_method(make_hlds_info::in, class_method::in, hlds::in, hlds::out) is det.
+:- pred process_typeclass_method(make_hlds_info::in, prog_constraint::in, class_method::in, hlds::in, hlds::out) is det.
 
-process_typeclass_method(Info, Method, !HLDS) :-
+process_typeclass_method(Info, Constraint, Method, !HLDS) :-
     Method = class_method(Name, ArgTypes, TVarset, _Context),
 
     get_name_and_status(Info, Name, FullName, ImportStatus),
     
     Arity = list.length(ArgTypes),
-    Pred = hlds_pred(invalid_pred_id, FullName, Arity, ImportStatus, [], varset.init, ArgTypes, TVarset, no_goal),
+    Pred = hlds_pred(invalid_pred_id, FullName, Arity, ImportStatus,
+            [], varset.init, ArgTypes, [Constraint], TVarset, no_goal),
 
     set_hlds_pred(Pred, _PredId, !.HLDS ^ predicate_table, PredTable),
     !HLDS ^ predicate_table := PredTable.
@@ -217,7 +221,9 @@ add_clause(Info, clause(Name, Args, Goal, !.Varset, _Context), !HLDS) :-
     ;
         PredTypes = [],
         TVarset = varset.init,
-        Pred = hlds_pred(invalid_pred_id, FullName, Arity, is_local, HeadVars, !.Varset, PredTypes, TVarset, goal(HldsGoal))
+        UnivConstraints = [],
+        Pred = hlds_pred(invalid_pred_id, FullName, Arity, is_local,
+                HeadVars, !.Varset, PredTypes, UnivConstraints, TVarset, goal(HldsGoal))
     ),
     
     set_hlds_pred(Pred, _PredId, !.HLDS ^ predicate_table, PredTable),
