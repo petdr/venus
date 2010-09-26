@@ -217,27 +217,11 @@ parse_type_head(variable(_Var, Context), Result) :-
 :- pred parse_type_body(term::in, parse_result(item_type_body)::out) is det.
 
 parse_type_body(Term, Result) :-
-    parse_data_constructor_list(Term, ConsListResult),
+    parse_separator_list(";", parse_data_constructor, Term, ConsListResult),
     ( ConsListResult = ok(List),
         Result = ok(discriminated_union(List))
     ; ConsListResult = error(Errs),
         Result = error(Errs)
-    ).
-
-:- pred parse_data_constructor_list(term::in, parse_result(list(item_data_constructor))::out) is det.
-
-parse_data_constructor_list(Term, Result) :-
-    ( Term = functor(atom(";"), [TermA, TermB], _Context) ->
-        parse_data_constructor_list(TermA, ResultA),
-        parse_data_constructor_list(TermB, ResultB),
-        Result = combine_results(list.append, ResultA, ResultB)
-    ;
-        parse_data_constructor(Term, DataConsResult),
-        ( DataConsResult = ok(DataConstructor),
-            Result = ok([DataConstructor])
-        ; DataConsResult = error(Errs),
-            Result = error(Errs)
-        )
     ).
 
 :- pred parse_data_constructor(term::in, parse_result(item_data_constructor)::out) is det.
@@ -391,18 +375,7 @@ parse_object_method(functor(atom("."), Args, _Context), Method) :-
 :- pred parse_constraint_list(term::in, parse_result(list(prog_constraint))::out) is det.
 
 parse_constraint_list(Term, Result) :-
-    ( Term = functor(atom(","), [TermA, TermB], _) ->
-        parse_constraint_list(TermA, ResultA),
-        parse_constraint_list(TermB, ResultB),
-        Result = combine_results(list.append, ResultA, ResultB)
-    ;
-        parse_constraint(Term, ConstraintResult),
-        ( ConstraintResult = ok(Constraint),
-            Result = ok([Constraint])
-        ; ConstraintResult = error(Errs),
-            Result = error(Errs)
-        )
-    ).
+    parse_separator_list(",", parse_constraint, Term, Result).
 
 :- pred parse_constraint(term::in, parse_result(prog_constraint)::out) is det.
 
@@ -489,6 +462,26 @@ parse_type_list([Term | Terms], Result) :-
     parse_type(Term, ResultTerm),
     parse_type_list(Terms, ResultTerms),
     Result = combine_results(list.cons, ResultTerm, ResultTerms).
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
+:- pred parse_separator_list(string::in,
+    pred(term, parse_result(T))::in(pred(in, out) is det), term::in, parse_result(list(T))::out) is det.
+
+parse_separator_list(Sep, Pred, Term, Result) :-
+    ( Term = functor(atom(Sep), [TermA, TermB], _Context) ->
+        parse_separator_list(Sep, Pred, TermA, ResultA),
+        parse_separator_list(Sep, Pred, TermB, ResultB),
+        Result = combine_results(list.append, ResultA, ResultB)
+    ;
+        Pred(Term, Result0),
+        ( Result0 = ok(Item),
+            Result = ok([Item])
+        ; Result0 = error(Errs),
+            Result = error(Errs)
+        )
+    ).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
