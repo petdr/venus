@@ -142,7 +142,7 @@ parse_attributed_decl(Varset, Functor, ArgTerms, Attrs, Context, Result) :-
     (
         Functor = "pred",
         ArgTerms = [PredTerm],
-        parse_pred_decl(Varset, PredTerm, Context, Result)
+        parse_pred_decl(Varset, PredTerm, Attrs, Context, Result)
     ;
         Functor = "type",
         ArgTerms = [TypeTerm],
@@ -165,19 +165,30 @@ check_no_attributes([_|_], Context, _, Result) :-
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
-:- pred parse_pred_decl(varset::in, term::in, context::in, parse_result(item)::out) is det.
+:- pred parse_pred_decl(varset::in, term::in, list(decl_attribute)::in, context::in, parse_result(item)::out) is det.
 
-parse_pred_decl(Varset, PredTerm, Context, Result) :-
+parse_pred_decl(Varset, PredTerm, Attrs, Context, Result) :-
     ( parse_sym_name(PredTerm, SymName, PredArgs) ->
-        parse_type_list(PredArgs, ResultPredArgs),
-        ( ResultPredArgs = ok(Types),
-            Result = ok(pred_decl(pred_decl(SymName, Types, coerce(Varset), Context)))
-        ; ResultPredArgs = error(Errors),
-            Result = error(Errors)
-        )
+        parse_type_list(PredArgs, ResultA),
+        parse_pred_decl_attributes(Attrs, ResultB),
+        Result = combine_results(to_pred_decl(SymName, Varset, Context), ResultA, ResultB)
     ;
         Result = error([simple_error_msg(Context, "Unable to parse predicate declaration")])
     ).
+
+:- func to_pred_decl(sym_name, varset, context, list(prog_type), list(prog_constraint)) = item.
+
+to_pred_decl(SymName, Varset, Context, Types, Constraints) =
+    pred_decl(pred_decl(SymName, Types, coerce(Varset), Constraints, Context)).
+
+:- pred parse_pred_decl_attributes(list(decl_attribute)::in, parse_result(list(prog_constraint))::out) is det.
+
+parse_pred_decl_attributes([], ok([])).
+parse_pred_decl_attributes([D | Ds], Result) :-
+    D = decl_attribute_constraints(_, Term),
+    parse_constraint_list(Term, ResultA), 
+    parse_pred_decl_attributes(Ds, ResultB),
+    Result = combine_results(list.append, ResultA, ResultB).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%

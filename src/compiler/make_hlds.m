@@ -91,7 +91,7 @@ process_decls(Info, type_defn(T), !HLDS) :-
     !HLDS ^ type_table := TypeTable.
 
 process_decls(Info, pred_decl(PredDecl), !HLDS) :-
-    PredDecl = pred_decl(PredName, PredTypes, PredTVarset, _PredContext),
+    PredDecl = pred_decl(PredName, PredTypes, PredTVarset, _PredUnivConstraints, _PredContext),
     Arity = list.length(PredTypes),
 
     get_name_and_status(Info, PredName, FullName, ImportStatus),

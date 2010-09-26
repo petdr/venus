@@ -31,12 +31,12 @@
 
 :- type item_pred_decl
     --->    pred_decl(
-                pred_decl_name      :: sym_name,
-                pred_decl_types     :: list(prog_type),
-                pred_decl_tvarset   :: tvarset,
-                pred_decl_context   :: term.context
-            )
-    .
+                pred_decl_name              :: sym_name,
+                pred_decl_types             :: list(prog_type),
+                pred_decl_tvarset           :: tvarset,
+                pred_decl_univ_constraints  :: list(prog_constraint),
+                pred_decl_context           :: term.context
+            ).
 
 :- type item_type_defn
     --->    type_defn(
