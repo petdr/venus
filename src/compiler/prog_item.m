@@ -32,8 +32,10 @@
 
 :- type item_instance_defn
     --->    instance_defn(
-                instance_name   :: sym_name,
-                instance_args   :: list(prog_type)
+                instance_name           :: sym_name,
+                instance_args           :: list(prog_type),
+                instance_constraints    :: list(prog_constraint),
+                instance_tvarset        :: tvarset
             ).
 
 :- type item_pred_decl

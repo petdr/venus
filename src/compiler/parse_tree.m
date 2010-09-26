@@ -140,6 +140,11 @@ parse_decl_attribute(Functor, ArgTerms, Attribute, SubTerm) :-
 
 parse_attributed_decl(Varset, Functor, ArgTerms, Attrs, Context, Result) :-
     (
+        Functor = "instance",
+        ArgTerms = [InstanceTerm],
+        parse_instance_decl(Varset, InstanceTerm, Context, Result0),
+        check_no_attributes(Attrs, Context, Result0, Result)
+    ;
         Functor = "pred",
         ArgTerms = [PredTerm],
         parse_pred_decl(Varset, PredTerm, Attrs, Context, Result)
@@ -161,6 +166,63 @@ check_no_attributes([], _Context, !Result).
 check_no_attributes([_|_], Context, _, Result) :-
         % XXX improve this error message
     Result = error([simple_error_msg(Context, "Decl shouldn't have attributes")]).
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
+:- pred parse_instance_decl(varset::in, term::in, context::in, parse_result(item)::out) is det.
+
+parse_instance_decl(Varset, Term, Context, Result) :-
+    ( Term = functor(atom("where"), [HeadTerm, BodyTerm], _Context) ->
+        parse_instance_head(HeadTerm, ResultA),
+        parse_instance_body(BodyTerm, ResultB),
+        Result = combine_results(to_instance_defn(Varset), ResultA, ResultB)
+    ;
+        Result = error([simple_error_msg(Context, "Unable to parse instance declaration")])
+    ).
+
+:- func to_instance_defn(varset, {sym_name, list(prog_type), list(prog_constraint)}, list(T)) = item.
+
+to_instance_defn(Varset, {Name, Args, Constraints}, _Methods) = 
+    instance_defn(instance_defn(Name, Args, Constraints, coerce(Varset))).
+
+%------------------------------------------------------------------------------%
+
+:- pred parse_instance_head(term::in, parse_result({sym_name, list(prog_type), list(prog_constraint)})::out) is det.
+
+parse_instance_head(Term, Result) :-
+    maybe_parse_constraint_list(Term, Result0),
+    ( Result0 = ok({NameTerm, Constraints}),
+        ( parse_sym_name(NameTerm, SymName, Args) ->
+            parse_type_list(Args, Result1),
+            ( Result1 = ok(Types),
+                Result = ok({SymName, Types, Constraints})
+            ; Result1 = error(Errs),
+                Result = error(Errs)
+            )
+        ;
+            Result = error([simple_error_msg(get_term_context(NameTerm), "Expected a name")])
+        )
+    ; Result0 = error(Errs),
+        Result = error(Errs)
+    ).
+
+:- pred maybe_parse_constraint_list(term::in, parse_result({term, list(prog_constraint)})::out) is det.
+
+maybe_parse_constraint_list(Term, Result) :-
+    ( Term = term.functor(atom("<="), [SubTerm, ConstratintTerm], _) ->
+        parse_constraint_list(ConstratintTerm, ResultA),
+        Result = combine_results(func(T, Cs) = {T, Cs}, ok(SubTerm), ResultA)
+    ;
+        Result = ok({Term, []})
+    ).
+
+%------------------------------------------------------------------------------%
+
+:- pred parse_instance_body(term::in, parse_result(list(int))::out) is det.
+
+parse_instance_body(_Term, Result) :-
+    Result = ok([]).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
