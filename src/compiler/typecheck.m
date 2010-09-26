@@ -90,7 +90,10 @@
     ;       unify(tvar, type_term)
     .
 
-:- type constraint_store == varset(tvar_type).
+:- type constraint_store 
+    --->    constraint_store(
+                varset(tvar_type)
+            ).  
     
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
@@ -141,19 +144,19 @@ typecheck_pred(HLDS, !Pred, Errors) :-
             TVarset0 = !.TCI ^ tvarset,
             !TCI ^ tvarset := varset.ensure_unique_names(varset.vars(TVarset0), "X", TVarset0),
 
-            solutions(solve(Constraint, !.TCI ^ tvarset), Solns),
+            solutions(solve(Constraint, constraint_store(!.TCI ^ tvarset)), Solns),
             trace [io(!IO)] (
                 output_constraint(!.TCI, Constraint, !IO),
-                list.foldl(output_varset(!.TCI ^ prog_var_to_tvar, !.Pred ^ pred_varset), Solns, !IO),
+                list.foldl(output_constraint_store(!.TCI ^ prog_var_to_tvar, !.Pred ^ pred_varset), Solns, !IO),
                 io.nl(!IO)
             )
         ),
         Errors = !.TCI ^ errors
     ).
 
-:- pred output_varset(prog_var_to_tvar::in, prog_varset::in, tvarset::in, io::di, io::uo) is det.
+:- pred output_constraint_store(prog_var_to_tvar::in, prog_varset::in, constraint_store::in, io::di, io::uo) is det.
 
-output_varset(Map, ProgVarset, TVarset, !IO) :-
+output_constraint_store(Map, ProgVarset, constraint_store(TVarset), !IO) :-
     io.write_string("\n*** Solution ***\n", !IO),
     list.foldl(output_var(Map, ProgVarset, TVarset), varset.vars(TVarset), !IO).
 
@@ -472,9 +475,9 @@ solve(unify(Var, Term), !Store) :-
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
-:- pred unify(term(T)::in, term(T)::in, varset(T)::in, varset(T)::out) is semidet.
+:- pred unify(type_term::in, type_term::in, constraint_store::in, constraint_store::out) is semidet.
 
-unify(TermA, TermB, !Varset) :-
+unify(TermA, TermB, constraint_store(!.Varset), constraint_store(!:Varset)) :-
     unify_term(TermA, TermB, varset.get_bindings(!.Varset), Bindings),
     varset.set_bindings(!.Varset, Bindings, !:Varset).
 
