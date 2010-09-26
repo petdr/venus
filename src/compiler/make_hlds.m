@@ -47,13 +47,14 @@
 
 :- type make_hlds_info
     --->    make_hlds_info(
-                mi_module_name  :: module_name
+                mi_module_name  :: module_name,
+                imp_module_name :: maybe(module_name)
             ).
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
 make_hlds(ModuleName, Items, !:HLDS, !IO) :-
-    Info = make_hlds_info(ModuleName),
+    Info = make_hlds_info(ModuleName, no),
 
     init_hlds(!:HLDS),
 
@@ -69,7 +70,13 @@ make_hlds(ModuleName, Items, !:HLDS, !IO) :-
 :- pred process_decls(make_hlds_info::in, item::in, hlds::in, hlds::out) is det.
 
 process_decls(_Info, clause(_), !HLDS).
-process_decls(_Info, typeclass_defn(_), !HLDS).
+process_decls(Info, typeclass_defn(T), !HLDS) :-
+    T = typeclass_defn(Name, _Params, _TVarset, Methods, _Context),
+    get_name_and_status(Info, Name, FullName, _ImportStatus),
+
+        % XXX the typeclass is in the module determined by get_name_and_status.
+    InfoForTypeclass = Info ^ imp_module_name := yes(FullName ^ module_qualifiers),
+    list.foldl(process_typeclass_method(InfoForTypeclass), Methods, !HLDS).
 process_decls(Info, type_defn(T), !HLDS) :-
     T = type_defn(Name, Params, TVarset, Body, Context),
 
@@ -79,7 +86,7 @@ process_decls(Info, type_defn(T), !HLDS) :-
     TypeCtor = type_ctor(FullName, Arity),
 
         % XXX the type is in the module determined by get_name_and_status.
-    InfoForType = Info ^ mi_module_name := FullName ^ module_qualifiers,
+    InfoForType = Info ^ imp_module_name := yes(FullName ^ module_qualifiers),
     process_type_body(InfoForType, TypeCtor, Params, TVarset, Body, TypeBody, !HLDS),
 
     TypeDefn = hlds_type_defn(TypeCtor, Params, TVarset, ImportStatus, TypeBody, Context),
@@ -104,9 +111,14 @@ process_decls(Info, pred_decl(PredDecl), !HLDS) :-
 :- pred get_name_and_status(make_hlds_info::in, sym_name::in, sym_name::out, import_status::out) is det.
 
 get_name_and_status(Info, Name, FullName, ImportStatus) :-
-    ( partially_qualified_sym_name_matches_module_name(Info ^ mi_module_name, Name) ->
-        FullName = fully_qualify_name(Info ^ mi_module_name, Name),
-        ImportStatus = is_local
+    CurrentModuleName = current_module_name(Info),
+    ( partially_qualified_sym_name_matches_module_name(CurrentModuleName, Name) ->
+        FullName = fully_qualify_name(CurrentModuleName, Name),
+        ( Info ^ imp_module_name = yes(_) ->
+            ImportStatus = is_imported
+        ;
+            ImportStatus = is_local
+        )
     ;
             % XXX This is a hack to mark incompatible names as coming from a different
             % module.  This allows us to test using just one file.
@@ -114,6 +126,28 @@ get_name_and_status(Info, Name, FullName, ImportStatus) :-
         ImportStatus = is_imported
     ).
 
+:- func current_module_name(make_hlds_info) = module_name.
+
+current_module_name(Info) =
+    ( Info ^ imp_module_name = yes(ModuleName) ->
+        ModuleName
+    ;
+        Info ^ mi_module_name
+    ).
+
+:- pred process_typeclass_method(make_hlds_info::in, class_method::in, hlds::in, hlds::out) is det.
+
+process_typeclass_method(Info, Method, !HLDS) :-
+    Method = class_method(Name, ArgTypes, TVarset, _Context),
+
+    get_name_and_status(Info, Name, FullName, ImportStatus),
+    
+    Arity = list.length(ArgTypes),
+    Pred = hlds_pred(invalid_pred_id, FullName, Arity, ImportStatus, [], varset.init, ArgTypes, TVarset, no_goal),
+
+    set_hlds_pred(Pred, _PredId, !.HLDS ^ predicate_table, PredTable),
+    !HLDS ^ predicate_table := PredTable.
+    
 :- pred process_type_body(make_hlds_info::in, type_ctor::in, list(type_param)::in, tvarset::in,
     item_type_body::in, hlds_type_body::out, hlds::in, hlds::out) is det.
 
