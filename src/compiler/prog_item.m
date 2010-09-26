@@ -14,6 +14,7 @@
 
 :- type item
     --->    clause(item_clause)
+    ;       instance_defn(item_instance_defn)
     ;       pred_decl(item_pred_decl)
     ;       type_defn(item_type_defn)
     ;       typeclass_defn(item_typeclass_defn)
@@ -28,6 +29,12 @@
                 clause_context      :: term.context
             )
     .
+
+:- type item_instance_defn
+    --->    instance_defn(
+                instance_name   :: sym_name,
+                instance_args   :: list(prog_type)
+            ).
 
 :- type item_pred_decl
     --->    pred_decl(
