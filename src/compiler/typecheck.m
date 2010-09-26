@@ -88,11 +88,15 @@
     --->    conj(list(constraint))
     ;       disj(list(constraint))
     ;       unify(tvar, type_term)
+    ;       tc(type_term)
     .
 
 :- type constraint_store 
     --->    constraint_store(
-                varset(tvar_type)
+                varset(tvar_type),
+
+                    % The list of typeclass constraints
+                list(type_term)
             ).  
     
 %------------------------------------------------------------------------------%
@@ -123,19 +127,23 @@ typecheck_pred(HLDS, !Pred, Errors) :-
         ( Goal = no_goal,
             error("XXX: there should be a goal!")
         ; Goal = goal(HldsGoal),
-            pred_renamed_apart_argtypes(!.Pred, !.TCI ^ tvarset, NewTVarset, PredArgTypes),
+            pred_renamed_apart_argtypes(!.Pred, !.TCI ^ tvarset, NewTVarset, PredArgTypes, PredUnivConstraints),
             !TCI ^ tvarset := NewTVarset,
 
                 % Do we have a predicate declaration for the types.
             ( list.length(PredArgTypes) : int = list.length(!.Pred ^ pred_args) ->
                 list.map_foldl(get_var_type, !.Pred ^ pred_args, ArgTVars, !TCI),
+                TypeclassConstraints = list.map(prog_constraint_constraint, PredUnivConstraints),
                 ArgConstraints = list.map_corresponding(unify_constraint, ArgTVars, PredArgTypes)
             ;
+                TypeclassConstraints = [],
                 ArgConstraints = []
             ),
 
             goal_to_constraint(Env, HldsGoal, GoalConstraint, !TCI),
 
+                % XXX for the moment I don't think we need the typeclass constraints
+            _ = TypeclassConstraints,
             Constraint = sort_constraints(maybe_to_conj(ArgConstraints ++ [GoalConstraint])),
 
                 % Ensure that each variable in the varset has a unique name.
@@ -144,7 +152,7 @@ typecheck_pred(HLDS, !Pred, Errors) :-
             TVarset0 = !.TCI ^ tvarset,
             !TCI ^ tvarset := varset.ensure_unique_names(varset.vars(TVarset0), "X", TVarset0),
 
-            solutions(solve(Constraint, constraint_store(!.TCI ^ tvarset)), Solns),
+            solutions(solve(Constraint, constraint_store(!.TCI ^ tvarset, [])), Solns),
             trace [io(!IO)] (
                 output_constraint(!.TCI, Constraint, !IO),
                 list.foldl(output_constraint_store(!.TCI ^ prog_var_to_tvar, !.Pred ^ pred_varset), Solns, !IO),
@@ -156,33 +164,39 @@ typecheck_pred(HLDS, !Pred, Errors) :-
 
 :- pred output_constraint_store(prog_var_to_tvar::in, prog_varset::in, constraint_store::in, io::di, io::uo) is det.
 
-output_constraint_store(Map, ProgVarset, constraint_store(TVarset), !IO) :-
+output_constraint_store(Map, ProgVarset, constraint_store(TVarset, Typeclasses), !IO) :-
     io.write_string("\n*** Solution ***\n", !IO),
-    list.foldl(output_var(Map, ProgVarset, TVarset), varset.vars(TVarset), !IO).
+    list.foldl(output_var(no, Map, ProgVarset, TVarset), varset.vars(TVarset), !IO),
+    list.foldl(output_typeclass(TVarset), Typeclasses, !IO).
 
-:- pred output_var(prog_var_to_tvar::in, prog_varset::in, tvarset::in, tvar::in, io::di, io::uo) is det.
+:- pred output_var(bool::in, prog_var_to_tvar::in, prog_varset::in, tvarset::in, tvar::in, io::di, io::uo) is det.
 
-output_var(Map, ProgVarset, TVarset, TVar, !IO) :-
+output_var(OutputEverything, Map, ProgVarset, TVarset, TVar, !IO) :-
     ( varset.search_var(TVarset, TVar, TypeTerm0) ->
         apply_rec_substitution(TypeTerm0, TVarset, TypeTerm),
 
         ( bimap.search(Map, ProgVar, TVar) ->
-            io.write_string(varset.lookup_name(ProgVarset, ProgVar), !IO)
+            io.write_string(varset.lookup_name(ProgVarset, ProgVar), !IO),
+            io.write_string(" => ", !IO),
+            term_io.write_term(TVarset, TypeTerm, !IO),
+            io.nl(!IO)
+        ; OutputEverything = yes ->
+            io.write_string(varset.lookup_name(TVarset, TVar), !IO),
+            io.write_string(" => ", !IO),
+            term_io.write_term(TVarset, TypeTerm, !IO),
+            io.nl(!IO)
         ;
-            io.write_string(varset.lookup_name(TVarset, TVar), !IO)
-        ),
-        io.write_string(" => ", !IO),
-        ( type_term_to_prog_type_list(TypeTerm, TypeList) ->
-            io.write(TypeList, !IO)
-        ; type_term_to_prog_type(TypeTerm, Type) ->
-            io.write(Type, !IO)
-        ;
-            io.write_string("unknown", !IO)
-        ),
-        io.nl(!IO)
+            true
+        )
     ;
         true
     ).
+
+:- pred output_typeclass(tvarset::in, type_term::in, io::di, io::uo) is det.
+
+output_typeclass(TVarset, Typeclass, !IO) :-
+    term_io.write_term(TVarset, Typeclass, !IO),
+    io.nl(!IO).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
@@ -311,17 +325,23 @@ construct_type(type_ctor(Name, _), Args) = defined_type(Name, Args).
 ho_pred_unif_constraint(PredTable, LHSTVar, ArgTVars, PredId, Constraint, !TCI) :-
     Pred = lookup_pred_id(PredTable, PredId),
 
-    pred_renamed_apart_argtypes(Pred, !.TCI ^ tvarset, NewTVarset, PredArgTypes),
+    pred_renamed_apart_argtypes(Pred, !.TCI ^ tvarset, NewTVarset, PredArgTypes, PredUnivConstraints),
     !TCI ^ tvarset := NewTVarset,
 
     ( list.split_list(list.length(ArgTVars), PredArgTypes, HOArgTypes, LambdaTypes) ->
+        TypeclassConstraints = list.map(prog_constraint_constraint, PredUnivConstraints),
         ArgConstraints = list.map_corresponding(unify_constraint, ArgTVars, HOArgTypes),
         LHSConstraint = unify(LHSTVar, pred_types(LambdaTypes)),
-        Constraint = maybe_to_conj([LHSConstraint | ArgConstraints])
+        Constraint = maybe_to_conj([LHSConstraint | ArgConstraints ++ TypeclassConstraints])
     ;
         % Arity less than arguments supplied
         fail
     ).
+
+:- func prog_constraint_constraint(prog_constraint) = constraint.
+
+prog_constraint_constraint(prog_constraint(SymName, Args)) =
+    tc(functor(sym_name_to_string(SymName), list.map(prog_type_to_type_term, Args))).
 
 %------------------------------------------------------------------------------%
 
@@ -331,7 +351,7 @@ ho_pred_unif_constraint(PredTable, LHSTVar, ArgTVars, PredId, Constraint, !TCI) 
 pred_call_constraint(PredTable, ArgTVars, PredId, Constraint, !TCI) :-
     Pred = lookup_pred_id(PredTable, PredId),
 
-    pred_renamed_apart_argtypes(Pred, !.TCI ^ tvarset, NewTVarset, ArgTypes),
+    pred_renamed_apart_argtypes(Pred, !.TCI ^ tvarset, NewTVarset, ArgTypes, UnivConstraints),
     !TCI ^ tvarset := NewTVarset,
 
     % XXX
@@ -341,8 +361,9 @@ pred_call_constraint(PredTable, ArgTVars, PredId, Constraint, !TCI) :-
         error("XXX handle the case where we don't a pred decl for the predicate")
     ),
 
+    TypeclassConstraints = list.map(prog_constraint_constraint, UnivConstraints),
     Constraints = list.map_corresponding(unify_constraint, ArgTVars, ArgTypes),
-    Constraint = maybe_to_conj(Constraints).
+    Constraint = maybe_to_conj(Constraints ++ TypeclassConstraints).
 
 :- func unify_constraint(tvar, prog_type) = constraint.
 
@@ -470,16 +491,40 @@ solve(disj([D | Ds]), !Store) :-
         solve(disj(Ds), !Store)
     ).
 solve(unify(Var, Term), !Store) :-
-    unify(variable(Var, context_init), Term, !Store).
+    add_unify_constraint(variable(Var, context_init), Term, !Store).
+solve(tc(Term), !Store) :-
+    add_typeclass_constraint(Term, !Store).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
-:- pred unify(type_term::in, type_term::in, constraint_store::in, constraint_store::out) is semidet.
 
-unify(TermA, TermB, constraint_store(!.Varset), constraint_store(!:Varset)) :-
+:- pred add_unify_constraint(type_term::in, type_term::in, constraint_store::in, constraint_store::out) is semidet.
+
+add_unify_constraint(TermA, TermB, constraint_store(!.Varset, !.Typeclasses), constraint_store(!:Varset, !:Typeclasses)) :-
     unify_term(TermA, TermB, varset.get_bindings(!.Varset), Bindings),
-    varset.set_bindings(!.Varset, Bindings, !:Varset).
+    varset.set_bindings(!.Varset, Bindings, !:Varset),
+    check_typeclass_constraints(!.Varset, !Typeclasses).
+
+:- pred add_typeclass_constraint(type_term::in, constraint_store::in, constraint_store::out) is det.
+
+add_typeclass_constraint(Term, constraint_store(!.Varset, !.Typeclasses), constraint_store(!:Varset, !:Typeclasses)) :-
+    list.cons(Term, !Typeclasses),
+    check_typeclass_constraints(!.Varset, !Typeclasses).
+
+:- pred check_typeclass_constraints(tvarset::in, list(type_term)::in, list(type_term)::out) is det.
+
+check_typeclass_constraints(TVarset, !Typeclasses) :-
+    list.map(check_typeclass_constraint(TVarset), !Typeclasses),
+    list.sort_and_remove_dups(!Typeclasses).
+
+:- pred check_typeclass_constraint(tvarset::in, type_term::in, type_term::out) is det.
+
+check_typeclass_constraint(TVarset, !Term) :-
+    apply_rec_substitution(!.Term, TVarset, !:Term),
+
+    % XXX still need to check to see if there is an instance defined
+    true.
 
 :- pred apply_rec_substitution(term(T)::in, varset(T)::in, term(T)::out) is det.
 
@@ -500,21 +545,30 @@ sort_constraints(C) = sort_constraints_2(flatten(C)).
 sort_constraints_2(conj(Cs)) = conj(list.sort(compare_constraint, list.map(sort_constraints_2, Cs))).
 sort_constraints_2(disj(Cs)) = disj(list.sort(compare_constraint, list.map(sort_constraints_2, Cs))).
 sort_constraints_2(C @ unify(_, _)) = C.
+sort_constraints_2(C @ tc(_)) = C.
     
 :- func compare_constraint(constraint, constraint) = comparison_result.
 
 compare_constraint(conj(_), conj(_)) = (=).
 compare_constraint(conj(_), disj(_)) = (<).
 compare_constraint(conj(_), unify(_, _)) = (>).
+compare_constraint(conj(_), tc(_)) = (>).
 compare_constraint(disj(_), conj(_)) = (>).
 compare_constraint(disj(_), disj(_)) = (=).
 compare_constraint(disj(_), unify(_, _)) = (>).
+compare_constraint(disj(_), tc(_)) = (>).
 compare_constraint(unify(_, _), conj(_)) = (<).
 compare_constraint(unify(_, _), disj(_)) = (<).
 compare_constraint(unify(_, TypeA), unify(_, TypeB)) = R :-
     NumA = number_type_vars(TypeA),
     NumB = number_type_vars(TypeB),
     compare(R, NumA, NumB).
+compare_constraint(unify(_, _), tc(_)) = (<).
+compare_constraint(tc(_), conj(_)) = (<).
+compare_constraint(tc(_), disj(_)) = (<).
+compare_constraint(tc(_), unify(_, _)) = (>).
+compare_constraint(tc(A), tc(B)) = R :-
+    compare(R, A, B).
 
 :- func number_type_vars(term(T)) = int.
 
@@ -529,6 +583,7 @@ number_type_vars(functor(_, Args, _)) = list.foldl(func(A,B) = A + B, list.map(n
 flatten(conj(Gs)) = conj(list.reverse(list.foldl(flatten_conj, Gs, []))).
 flatten(disj(Gs)) = disj(list.reverse(list.foldl(flatten_disj, Gs, []))).
 flatten(C @ unify(_, _)) = C.
+flatten(C @ tc(_)) = C.
 
 :- func flatten_conj(constraint, list(constraint)) = list(constraint).
 
@@ -588,6 +643,9 @@ output_constraint_2(Indent, Info, unify(TVar, Term), !IO) :-
     output_indent(Indent, !IO),
     term_io.write_term(Info ^ tvarset, variable(TVar, context_init), !IO),
     io.write_string(" = ", !IO),
+    term_io.write_term(Info ^ tvarset, Term, !IO).
+output_constraint_2(Indent, Info, tc(Term), !IO) :-
+    output_indent(Indent, !IO),
     term_io.write_term(Info ^ tvarset, Term, !IO).
 
 %------------------------------------------------------------------------------%

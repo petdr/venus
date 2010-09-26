@@ -47,7 +47,8 @@
     % Return the arguments types such that each type variable in Args is renamed apart from type variables
     % in TVarset0.
     %
-:- pred pred_renamed_apart_argtypes(hlds_pred::in, tvarset::in, tvarset::out, list(prog_type)::out) is det.
+:- pred pred_renamed_apart_argtypes(hlds_pred::in,
+    tvarset::in, tvarset::out, list(prog_type)::out, list(prog_constraint)::out) is det.
 
 
 :- implementation.
@@ -58,7 +59,13 @@
 
 invalid_pred_id = pred_id(-1).
 
-pred_renamed_apart_argtypes(Pred, !TVarset, Args) :-
+pred_renamed_apart_argtypes(Pred, !TVarset, Args, Constraints) :-
     tvarset_merge_renaming(!.TVarset, Pred ^ pred_tvarset, !:TVarset, Renaming),
-    Args = apply_variable_renaming_to_type_list(Renaming, Pred ^ pred_types).
+    Args = apply_variable_renaming_to_type_list(Renaming, Pred ^ pred_types),
+    Constraints = list.map(rename_apart_prog_constraint(Renaming), Pred ^ pred_univ_constraints).
+
+:- func rename_apart_prog_constraint(tvar_renaming, prog_constraint) = prog_constraint.
+
+rename_apart_prog_constraint(Renaming, prog_constraint(Name, Params)) =
+    prog_constraint(Name, apply_variable_renaming_to_type_list(Renaming, Params)).
 
