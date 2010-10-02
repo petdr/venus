@@ -15,6 +15,13 @@
 :- import_module varset.
 
 main(!IO) :-
+    io.command_line_arguments(Args, !IO),
+    ( Args = [File | _] ->
+        io.see(File, _, !IO)
+    ;
+        true
+    ),
+    read_chr_rule(_ : chr_io.read_result(chr_rule), !IO),
     read_chr_goal(Result, !IO),
     ( Result = ok({Varset, Goal}),
         solutions(solve([], Varset, Goal), Solutions),
