@@ -1,3 +1,4 @@
+test_chr
 Make.params
 Mercury.modules
 Mercury/
@@ -7,3 +8,4 @@ vc
 *.mh
 *.m
 *.pl
+*.chr
