@@ -30,7 +30,7 @@ main_2(!Rules, !IO) :-
     ( Result = ok(GoalOrRule),
         ( GoalOrRule = goal(Varset, Goal),
             io.write_string("\nExecuting goal\n", !IO),
-            solutions(solve(!.Rules, Varset, Goal), Solutions),
+            solutions(solve(list.reverse(!.Rules), Varset, Goal), Solutions),
             list.foldl(output_solution(Varset), Solutions, !IO),
             io.nl(!IO)
         ; GoalOrRule = rule(_Varset, Rule),

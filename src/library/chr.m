@@ -22,9 +22,6 @@
 %------------------------------------------------------------------------------%
 % Describe CHR rules
 
-    % A CHR program consists of a set of chr_rule
-:- type chr_program(T).
-
 :- type chr_rules(T) == list(chr_rule(T)).
 :- type chr_rule(T)
     --->    chr_rule(
@@ -87,11 +84,26 @@
 
 :- type constraint_store(T)
     --->    constraint_store(
-                varset(T)
+                a   :: list(execution(T)),
+                s   :: list(chr_store_elem(T)),
+                b   :: varset(T),
+                t   :: set(list(int)),
+                n   :: int
             ).
 
+:- type execution(T)
+    --->    constraint(constraint(T))
+    ;       inactive(chr_constraint(T), int)
+    ;       active(chr_constraint(T), int, int)
+    .
+
+:- type chr_store_elem(T)
+    --->    numbered(chr_constraint(T), int)
+    ;       normal(chr_constraint(T))
+    .
+
 solve(Rules, Varset0, Goal, Constraints) :-
-    solve_2(program(Rules), Goal, constraint_store(Varset0), constraint_store(Varset)),
+    solve_2(program(Rules), Goal, constraint_store([], [], Varset0, set.init, 1), constraint_store(_, _, Varset, _, _)),
 
         % XXX it would be nice to do more simplification
     list.filter_map(to_constraint(Varset), varset.vars(Varset), Constraints).
@@ -116,19 +128,52 @@ solve_2(Program, disj([G | Gs]), !Store) :-
         solve_2(Program, disj(Gs), !Store)
     ).
 solve_2(_Program, builtin(unify(TermA, TermB)), !Store) :-
+        % SOLVE
     add_unify_constraint(TermA, TermB, !Store).
 solve_2(_Program, builtin(true), !Store).
 solve_2(_Program, builtin(fail), !Store) :-
     fail.
-solve_2(_Program, chr(_Constraint), !Store) :-
-    % XXX fix me.
+solve_2(_Program, chr(Constraint), !Store) :-
+        % ACTIVATE
     fail.
 
 :- pred add_unify_constraint(term(T)::in, term(T)::in, constraint_store(T)::in, constraint_store(T)::out) is semidet.
 
-add_unify_constraint(TermA, TermB, constraint_store(!.Varset), constraint_store(!:Varset)) :-
-    unify_term(TermA, TermB, varset.get_bindings(!.Varset), Bindings),
-    varset.set_bindings(!.Varset, Bindings, !:Varset).
+add_unify_constraint(TermA, TermB, !Store) :-
+    some [!Varset] (
+        !:Varset = !.Store ^ b,
+        unify_term(TermA, TermB, varset.get_bindings(!.Varset), Bindings),
+        varset.set_bindings(!.Varset, Bindings, !:Varset),
+        !Store ^ b := !.Varset
+    ),
+    wakeup_policy(!Store).
+
+    % Wakeup all non-fixed CHR constraints in the store and move
+    % them to the head of the execution list.
+:- pred wakeup_policy(constraint_store(T)::in, constraint_store(T)::out) is det.
+
+wakeup_policy(!Store) :-
+    list.filter_map(wakeup(!.Store ^ b), !.Store ^ s, ToAddToExecution),
+    list.append(ToAddToExecution, !.Store ^ a, NewA),
+    !Store ^ a := NewA.
+
+    % We wakeup the chr_constraint if it contains at least one variable
+    % in its args.
+:- pred wakeup(varset(T)::in, chr_store_elem(T)::in, execution(T)::out) is semidet.
+
+wakeup(Varset, Elem, Wakeup) :-
+    ( Elem = numbered(ChrConstraint, N),
+        Wakeup = inactive(ChrConstraint, N)
+    ; Elem = normal(ChrConstraint),
+        Wakeup = constraint(chr(ChrConstraint))
+    ),
+    ChrConstraint = chr(_Name, Args),
+    not list.all_true(is_ground_in_bindings(get_bindings(Varset)), Args).
+
+:- pred is_ground_in_bindings(substitution(T)::in, term(T)::in) is semidet.
+
+is_ground_in_bindings(Subst, Term) :-
+    is_ground_in_bindings(Term, Subst).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
