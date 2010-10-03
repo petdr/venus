@@ -78,13 +78,23 @@
 :- import_module chr_io.
 
 :- import_module int.
+:- import_module map.
 :- import_module require.
 :- import_module set.
+:- import_module svmap.
 
+:- type program_rules(T) == map(int, program_rule(T)).
 :- type chr_program(T)
     --->    program(
-                rules                   :: list(chr_rule(T)),
+                rules                   :: program_rules(T),
                 number_of_head_atoms    :: int
+            ).
+
+:- type program_rule(T)
+    --->    program_rule(
+                rule_index              :: int,
+                first_head_atom_index   :: int,
+                program_rule            :: chr_rule(T)
             ).
 
 :- type constraint_store(T)
@@ -116,12 +126,24 @@ solve(Rules, Varset0, Goal, Constraints) :-
 
 :- pred create_chr_program(list(chr_rule(T))::in, chr_program(T)::out) is det.
 
-create_chr_program(Rules, program(Rules, NumberOfHeadAtoms)) :-
-    list.foldl(program_rule, Rules, 0, NumberOfHeadAtoms).
+create_chr_program(Rules, program(ProgramRules, NumberOfHeadAtoms)) :-
+    list.foldl3(program_rule, Rules, 0, NumberOfHeadAtoms, 0, _NumRules, map.init, ProgramRules).
 
-:- pred program_rule(chr_rule(T)::in, int::in, int::out) is det.
+:- pred program_rule(chr_rule(T)::in,
+    int::in, int::out, int::in, int::out, program_rules(T)::in, program_rules(T)::out) is det.
 
-program_rule(chr_rule(_Name, Prop, Simp, _Guard, _Body), N, list.length(Prop) + list.length(Simp) + N).
+program_rule(Rule @ chr_rule(_Name, Prop, Simp, _Guard, _Body), !NumHeadAtoms, !RuleNumber, !ProgramRules) :-
+    ProgramRule = program_rule(!.RuleNumber, !.NumHeadAtoms + 1, Rule),
+    list.foldl2(add_index(ProgramRule), Simp, !NumHeadAtoms, !ProgramRules),
+    list.foldl2(add_index(ProgramRule), Prop, !NumHeadAtoms, !ProgramRules),
+    !:RuleNumber = !.RuleNumber + 1.
+
+:- pred add_index(program_rule(T)::in, chr_constraint(T)::in,
+    int::in, int::out, program_rules(T)::in, program_rules(T)::out) is det.
+
+add_index(ProgRule, _Constraint, NumHeadAtoms, Index, !ProgramRules) :-
+    Index = NumHeadAtoms + 1,
+    svmap.set(Index, ProgRule, !ProgramRules).
     
 
 :- pred to_constraint(varset(T)::in, var(T)::in, constraint(T)::out) is semidet.
