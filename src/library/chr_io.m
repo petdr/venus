@@ -9,15 +9,35 @@
 :- import_module term.
 :- import_module varset.
 
+%------------------------------------------------------------------------------%
+
 :- type read_result(T)
     --->    ok(T)
     ;       eof
     ;       error(term.context, string)
     .
 
+:- type goal_or_rule(T)
+    --->    goal(varset(T), chr_goal(T))
+    ;       rule(varset(T), chr_rule(T))
+    .
+
+:- pred read_chr(chr_io.read_result(goal_or_rule(T))::out, io::di, io::uo) is det.
+
 :- pred read_chr_goal(chr_io.read_result({varset(T), chr_goal(T)})::out, io::di, io::uo) is det.
 
 :- pred read_chr_rule(chr_io.read_result({varset(T), chr_rule(T)})::out, io::di, io::uo) is det.
+
+%------------------------------------------------------------------------------%
+
+:- type parse_result(T)
+    --->    ok(T)
+    ;       error(term.context, string)
+    .
+
+:- pred parse_chr_goal(term(T)::in, parse_result(chr_goal(T))::out) is det.
+
+:- pred parse_chr_rule(term(T)::in, parse_result(chr_rule(T))::out) is det.
 
 %------------------------------------------------------------------------------%
 
@@ -34,10 +54,32 @@
 :- import_module parser.
 :- import_module term_io.
 
+read_chr(Result, !IO) :-
+    parser.read_term_with_op_table(chr_op_table, ReadResult, !IO),
+    ( ReadResult = term(Varset, Term),
+        parse_chr_goal(Term, GoalResult),
+        ( GoalResult = ok(Goal),
+            Result = ok(goal(Varset, Goal))
+        ; GoalResult = error(_, _),
+            parse_chr_rule(Term, RuleResult),
+            ( RuleResult = ok(Rule),
+                Result = ok(rule(Varset, Rule))
+            ; RuleResult = error(C, Err),
+                Result = error(C, Err)
+            )
+        )
+    ; ReadResult = error(Err, Int),
+        io.input_stream_name(File, !IO),
+        Result = error(context(File, Int), Err)
+    ; ReadResult = eof,
+        Result = eof
+    ).
+
+
 read_chr_goal(Result, !IO) :-
     parser.read_term_with_op_table(chr_op_table, ReadResult, !IO),
     ( ReadResult = term(Varset, Term),
-        parse_goal(Term, GoalResult),
+        parse_chr_goal(Term, GoalResult),
         ( GoalResult = ok(Goal),
             Result = ok({Varset, Goal})
         ; GoalResult = error(Context, Err),
@@ -53,7 +95,7 @@ read_chr_goal(Result, !IO) :-
 read_chr_rule(Result, !IO) :-
     parser.read_term_with_op_table(chr_op_table, ReadResult, !IO),
     ( ReadResult = term(Varset, Term),
-        parse_named_rule(Term, RuleResult),
+        parse_chr_rule(Term, RuleResult),
         ( RuleResult = ok(Rule),
             Result = ok({Varset, Rule})
         ; RuleResult = error(Context, Err),
@@ -68,22 +110,15 @@ read_chr_rule(Result, !IO) :-
 
 %------------------------------------------------------------------------------%
 
-:- type parse_result(T)
-    --->    ok(T)
-    ;       error(term.context, string)
-    .
-
-:- pred parse_goal(term(T)::in, parse_result(chr_goal(T))::out) is det.
-
-parse_goal(variable(_V, C), error(C, "Unexpected variable")).
-parse_goal(functor(Const, Args, Context), Result) :-
+parse_chr_goal(variable(_V, C), error(C, "Unexpected variable")).
+parse_chr_goal(functor(Const, Args, Context), Result) :-
     ( Const = atom(","), Args = [TermA, TermB] ->
-        parse_goal(TermA, ResultA),
-        parse_goal(TermB, ResultB),
+        parse_chr_goal(TermA, ResultA),
+        parse_chr_goal(TermB, ResultB),
         Result = combine_results(to_conj, ResultA, ResultB)
     ; Const = atom(";"), Args = [TermA, TermB] ->
-        parse_goal(TermA, ResultA),
-        parse_goal(TermB, ResultB),
+        parse_chr_goal(TermA, ResultA),
+        parse_chr_goal(TermB, ResultB),
         Result = combine_results(to_disj, ResultA, ResultB)
     ; Const = atom("true"), Args = [] ->
         Result = ok(builtin(true))
@@ -115,10 +150,8 @@ to_disj(GoalA, GoalB) = disj(Goals) :-
         
 %------------------------------------------------------------------------------%
 
-:- pred parse_named_rule(term(T)::in, parse_result(chr_rule(T))::out) is det.
-
-parse_named_rule(variable(_V, C), error(C, "Unexpected variable")).
-parse_named_rule(Term @ functor(Const, Args, _Context), Result) :-
+parse_chr_rule(variable(_V, C), error(C, "Unexpected variable")).
+parse_chr_rule(Term @ functor(Const, Args, _Context), Result) :-
     ( Const = atom("@"), Args = [RuleName, Rule0] ->
         parse_rule_name(RuleName, ResultA),
         Rule = Rule0

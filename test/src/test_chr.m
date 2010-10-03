@@ -21,25 +21,39 @@ main(!IO) :-
     ;
         true
     ),
-    read_chr_rule(_ : chr_io.read_result({varset, chr_rule}), !IO),
-    read_chr_goal(Result, !IO),
-    ( Result = ok({Varset, Goal}),
-        solutions(solve([], Varset, Goal), Solutions),
-        list.foldl(output_solution(Varset), Solutions, !IO),
-        io.nl(!IO)
+    main_2([], _Rules, !IO).
+
+:- pred main_2(list(chr_rule)::in, list(chr_rule)::out, io::di, io::uo) is det.
+
+main_2(!Rules, !IO) :-
+    read_chr(Result, !IO),
+    ( Result = ok(GoalOrRule),
+        ( GoalOrRule = goal(Varset, Goal),
+            io.write_string("\nExecuting goal\n", !IO),
+            solutions(solve(!.Rules, Varset, Goal), Solutions),
+            list.foldl(output_solution(Varset), Solutions, !IO),
+            io.nl(!IO)
+        ; GoalOrRule = rule(_Varset, Rule),
+            list.cons(Rule, !Rules)
+        ),
+        main_2(!Rules, !IO)
+    ; Result = eof,
+        true
     ; Result = error(Context, Err),
         io.write(Context, !IO),
         io.write_string(" ", !IO),
         io.write_string(Err, !IO),
-        io.nl(!IO)
-    ; Result = eof,
-        true
+        io.nl(!IO),
+        main_2(!Rules, !IO)
     ).
+
+
+
     
 :- pred output_solution(varset::in, list(constraint)::in, io::di, io::uo) is det.
 
 output_solution(Varset, Constraints, !IO) :-
-    io.write_string("\n*** Solution ***\n", !IO),
+    io.write_string("*** Solution ***\n", !IO),
     list.foldl(output(Varset), Constraints, !IO).
 
 :- pred output(varset::in, constraint::in, io::di, io::uo) is det.
