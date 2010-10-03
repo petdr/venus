@@ -77,11 +77,15 @@
 
 :- import_module chr_io.
 
+:- import_module int.
 :- import_module require.
 :- import_module set.
 
 :- type chr_program(T)
-    --->    program(list(chr_rule(T))).
+    --->    program(
+                rules                   :: list(chr_rule(T)),
+                number_of_head_atoms    :: int
+            ).
 
 :- type constraint_store(T)
     --->    constraint_store(
@@ -104,10 +108,21 @@
     .
 
 solve(Rules, Varset0, Goal, Constraints) :-
-    solve_2(program(Rules), Goal, constraint_store([], [], Varset0, set.init, 1), constraint_store(_, _, Varset, _, _)),
+    create_chr_program(Rules, Program),
+    solve_2(Program, Goal, constraint_store([], [], Varset0, set.init, 1), constraint_store(_, _, Varset, _, _)),
 
         % XXX it would be nice to do more simplification
     list.filter_map(to_constraint(Varset), varset.vars(Varset), Constraints).
+
+:- pred create_chr_program(list(chr_rule(T))::in, chr_program(T)::out) is det.
+
+create_chr_program(Rules, program(Rules, NumberOfHeadAtoms)) :-
+    list.foldl(program_rule, Rules, 0, NumberOfHeadAtoms).
+
+:- pred program_rule(chr_rule(T)::in, int::in, int::out) is det.
+
+program_rule(chr_rule(_Name, Prop, Simp, _Guard, _Body), N, list.length(Prop) + list.length(Simp) + N).
+    
 
 :- pred to_constraint(varset(T)::in, var(T)::in, constraint(T)::out) is semidet.
 
@@ -145,24 +160,24 @@ add_constraint(Constraint, !Store) :-
 
 :- pred solve_chr(chr_program(T)::in, constraint_store(T)::in, constraint_store(T)::out) is semidet.
 
-solve_chr(_Program, !Store) :-
+solve_chr(Program, !Store) :-
     ( head_execution_stack(Head, !Store) ->
         ( Head = constraint(builtin(Builtin)),
-            % SOLVE
             solve_step(Builtin, !Store)
-        ; Head = constraint(chr(_CHR)),
-            % ACTIVATE
-            fail
-        ; Head = inactive(_CHR, _I),
-            % REACTIVATE
-            fail
-        ; Head = active(_CHR, _I, _J),
-            % DROP
-            % SIMPLIFY
-            % PROPAGATE
-            % DEFAULT
-            fail
-        )
+        ; Head = constraint(chr(CHR)),
+            activate_step(CHR, !Store)
+        ; Head = inactive(CHR, I),
+            reactivate_step(CHR, I, !Store)
+        ; Head = active(CHR, I, J),
+            ( J > Program ^ number_of_head_atoms ->
+                drop_step(!Store)
+            ;
+                % SIMPLIFY
+                % PROPAGATE
+                default_step(CHR, I, J, !Store)
+            )
+        ),
+        solve_chr(Program, !Store)
     ;
         % There is nothing left on the execution stack, so we're finished.
         true
@@ -187,6 +202,31 @@ solve_step(unify(TermA, TermB), !Store) :-
         !Store ^ b := !.Varset
     ),
     wakeup_policy(!Store).
+
+:- pred activate_step(chr_constraint(T)::in, constraint_store(T)::in, constraint_store(T)::out) is det.
+
+activate_step(CHR, !Store) :-
+    N = !.Store ^ n,
+    !Store ^ a := [active(CHR, N, 1) | !.Store ^ a],
+    !Store ^ s := [numbered(CHR, N) | !.Store ^ s],
+    !Store ^ n := N + 1.
+
+:- pred reactivate_step(chr_constraint(T)::in, int::in, constraint_store(T)::in, constraint_store(T)::out) is det.
+
+reactivate_step(CHR, I, !Store) :-
+    !Store ^ a := [active(CHR, I, 1) | !.Store ^ a].
+
+:- pred drop_step(constraint_store(T)::in, constraint_store(T)::out) is det.
+
+    % The call to head_execution_stack has already removed the top most constraint
+    % from the stack, so we have to do nothing here.
+drop_step(!Store).
+
+:- pred default_step(chr_constraint(T)::in, int::in, int::in, constraint_store(T)::in, constraint_store(T)::out) is det.
+
+default_step(CHR, I, J, !Store) :-
+    !Store ^ a := [active(CHR, I, J + 1) | !.Store ^ a].
+
     
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
