@@ -25,30 +25,35 @@
     % A CHR program consists of a set of chr_rule
 :- type chr_program(T).
 
+:- type chr_rules(T) == list(chr_rule(T)).
 :- type chr_rule(T)
     --->    chr_rule(
                 chr_name    :: chr_name,
-                chr_prop    :: list(chr_constraint(T)),
-                chr_simp    :: list(chr_constraint(T)),
-                chr_guard   :: list(builtin_constraint(T)),
-                chr_body    :: list(constraint(T))
+                chr_prop    :: chr_constraints(T),
+                chr_simp    :: chr_constraints(T),
+                chr_guard   :: builtin_constraints(T),
+                chr_body    :: constraints(T)
             ).
 
 :- type chr_name
     --->    name(string)
+    ;       no_name
     .
 
+:- type constraints(T) == list(constraint(T)).
 :- type constraint(T)
     --->    chr(chr_constraint(T))
     ;       builtin(builtin_constraint(T))
     .
 
+:- type chr_constraints(T) == list(chr_constraint(T)).
 :- type chr_constraint(T)
     --->    chr(
                 string,
                 list(term(T))
             ).
 
+:- type builtin_constraints(T) == list(builtin_constraint(T)).
 :- type builtin_constraint(T)
     --->    unify(term(T), term(T))
     ;       true
@@ -62,6 +67,11 @@
 :- type constraint == constraint(generic).
 :- type chr_constraint == chr_constraint(generic).
 :- type builtin_constraint == builtin_constraint(generic).
+
+:- type chr_rules == chr_rules(generic).
+:- type constraints == constraints(generic).
+:- type chr_constraints == chr_constraints(generic).
+:- type builtin_constraints == builtin_constraints(generic).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%

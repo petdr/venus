@@ -17,7 +17,7 @@
 
 :- pred read_chr_goal(chr_io.read_result({varset(T), chr_goal(T)})::out, io::di, io::uo) is det.
 
-:- pred read_chr_rule(chr_io.read_result(chr_rule(T))::out, io::di, io::uo) is det.
+:- pred read_chr_rule(chr_io.read_result({varset(T), chr_rule(T)})::out, io::di, io::uo) is det.
 
 %------------------------------------------------------------------------------%
 
@@ -52,10 +52,10 @@ read_chr_goal(Result, !IO) :-
 
 read_chr_rule(Result, !IO) :-
     parser.read_term_with_op_table(chr_op_table, ReadResult, !IO),
-    ( ReadResult = term(_Varset, Term),
-        parse_rule(Term, RuleResult),
+    ( ReadResult = term(Varset, Term),
+        parse_named_rule(Term, RuleResult),
         ( RuleResult = ok(Rule),
-            Result = ok(Rule)
+            Result = ok({Varset, Rule})
         ; RuleResult = error(Context, Err),
             Result = error(Context, Err)
         )
@@ -80,11 +80,11 @@ parse_goal(functor(Const, Args, Context), Result) :-
     ( Const = atom(","), Args = [TermA, TermB] ->
         parse_goal(TermA, ResultA),
         parse_goal(TermB, ResultB),
-        Result = combine_result(to_conj, ResultA, ResultB)
+        Result = combine_results(to_conj, ResultA, ResultB)
     ; Const = atom(";"), Args = [TermA, TermB] ->
         parse_goal(TermA, ResultA),
         parse_goal(TermB, ResultB),
-        Result = combine_result(to_disj, ResultA, ResultB)
+        Result = combine_results(to_disj, ResultA, ResultB)
     ; Const = atom("true"), Args = [] ->
         Result = ok(builtin(true))
     ; Const = atom("fail"), Args = [] ->
@@ -115,19 +115,147 @@ to_disj(GoalA, GoalB) = disj(Goals) :-
         
 %------------------------------------------------------------------------------%
 
-:- pred parse_rule(term(T)::in, parse_result(chr_rule(T))::out) is det.
+:- pred parse_named_rule(term(T)::in, parse_result(chr_rule(T))::out) is det.
 
-parse_rule(Term, Result) :-
-    Result = error(get_term_context(Term), "XXX").
+parse_named_rule(variable(_V, C), error(C, "Unexpected variable")).
+parse_named_rule(Term @ functor(Const, Args, _Context), Result) :-
+    ( Const = atom("@"), Args = [RuleName, Rule0] ->
+        parse_rule_name(RuleName, ResultA),
+        Rule = Rule0
+    ;
+        ResultA = ok(no_name),
+        Rule = Term
+    ),
+    parse_rule(Rule, ResultB),
+    Result = combine_results(to_chr_rule, ResultA, ResultB).
+
+:- pred parse_rule_name(term(T)::in, parse_result(chr_name)::out) is det.
+
+parse_rule_name(variable(_V, C), error(C, "Unexpected variable")).
+parse_rule_name(functor(Const, Args, Context), Result) :-
+    ( Const = atom(Name), Args = [] ->
+        Result = ok(name(Name))
+    ;
+        Result = error(Context, "Expected rule name")
+    ).
+    
+:- func to_chr_rule(chr_name, unnamed_rule(T)) = chr_rule(T).
+
+to_chr_rule(Name, {Prop, Simp, Guard, Body}) = chr_rule(Name, Prop, Simp, Guard, Body).
+
+:- type unnamed_rule(T) == {chr_constraints(T), chr_constraints(T), builtin_constraints(T), constraints(T)}.
+
+:- pred parse_rule(term(T)::in, parse_result(unnamed_rule(T))::out) is det.  
+parse_rule(variable(_V, C), error(C, "Unexpected variable")).
+parse_rule(functor(Const, Args, Context), Result) :-
+    ( Const = atom("<=>"), Args = [TermA, TermB] ->
+        parse_simpgation_rule_head(TermA, ResultA),
+        parse_guarded_rhs(TermB, ResultB),
+        Result = combine_results(to_simp_rule, ResultA, ResultB)
+    ; Const = atom("==>"), Args = [TermA, TermB] ->
+        parse_conj(parse_chr_constraint, TermA, ResultA),
+        parse_guarded_rhs(TermB, ResultB),
+        Result = combine_results(to_prop_rule, ResultA, ResultB)
+    ;
+        Result = error(Context, "Expected <=> or ==>")
+    ).
+
+:- func to_simp_rule({chr_constraints(T), chr_constraints(T)}, {builtin_constraints(T), constraints(T)}) = unnamed_rule(T).
+
+to_simp_rule({Prop, Simp}, {Guard, Body}) = {Prop, Simp, Guard, Body}.
+
+:- func to_prop_rule(chr_constraints(T), {builtin_constraints(T), constraints(T)}) = unnamed_rule(T).
+
+to_prop_rule(Prop, {Guard, Body}) = {Prop, [], Guard, Body}.
+
+:- pred parse_simpgation_rule_head(term(T)::in, parse_result({chr_constraints(T), chr_constraints(T)})::out) is det.
+
+parse_simpgation_rule_head(variable(_V, C), error(C, "Unexpected variable")).
+parse_simpgation_rule_head(Term @ functor(Const, Args, _Context), Result) :-
+    ( Const = atom("\\"), Args = [TermA, TermB] ->
+        parse_conj(parse_chr_constraint, TermA, ResultA),
+        SimpTerm = TermB
+    ;
+        ResultA = ok([]),
+        SimpTerm = Term
+    ),
+    parse_conj(parse_chr_constraint, SimpTerm, ResultB),
+    Result = combine_results(func(A, B) = {A, B}, ResultA, ResultB).
+
+:- pred parse_guarded_rhs(term(T)::in, parse_result({builtin_constraints(T), constraints(T)})::out) is det.
+
+parse_guarded_rhs(variable(_V, C), error(C, "Unexpected variable")).
+parse_guarded_rhs(Term @ functor(Const, Args, _Context), Result) :-
+    ( Const = atom("|"), Args = [TermA, TermB] ->
+        parse_conj(parse_builtin_constraint, TermA, ResultA),
+        ConstraintsTerm = TermB
+    ;
+        ResultA = ok([]),
+        ConstraintsTerm = Term
+    ),
+    parse_conj(parse_constraint, ConstraintsTerm, ResultB),
+    Result = combine_results(func(A, B) = {A, B}, ResultA, ResultB).
+
+:- pred parse_conj(pred(term(T), parse_result(U))::pred(in, out) is det, term(T)::in, parse_result(list(U))::out) is det.
+
+parse_conj(_ParseOneItem, variable(_V, C), error(C, "Unexpected variable")).
+parse_conj(ParseOneItem, Term @ functor(Const, Args, _Context), Result) :-
+    ( Const = atom(","), Args = [TermA, TermB] ->
+        parse_conj(ParseOneItem, TermA, ResultA),
+        parse_conj(ParseOneItem, TermB, ResultB),
+        Result = combine_results(list.append, ResultA, ResultB)
+    ;
+        ParseOneItem(Term, Result0),
+        Result = combine_results(list.cons, Result0, ok([]))
+    ).
+
+:- pred parse_constraint(term(T)::in, parse_result(constraint(T))::out) is det.
+
+parse_constraint(Term, Result) :-
+    parse_builtin_constraint(Term, ResultBuiltin),
+    ( ResultBuiltin = ok(Builtin),
+        Result = ok(builtin(Builtin))
+    ; ResultBuiltin = error(_, _),
+        parse_chr_constraint(Term, ResultChr),
+        ( ResultChr = ok(Chr),
+            Result = ok(chr(Chr))
+        ; ResultChr = error(C, Err),
+            Result = error(C, Err)
+        )
+    ).
+
+:- pred parse_chr_constraint(term(T)::in, parse_result(chr_constraint(T))::out) is det.
+
+parse_chr_constraint(variable(_V, C), error(C, "Unexpected variable")).
+parse_chr_constraint(functor(Const, Args, Context), Result) :-
+    ( Const = atom(Name) ->
+        Result = ok(chr(Name, Args))
+    ;
+        Result = error(Context, "expected atom with possibly arguments")
+    ).
+
+:- pred parse_builtin_constraint(term(T)::in, parse_result(builtin_constraint(T))::out) is det.
+
+parse_builtin_constraint(variable(_V, C), error(C, "Unexpected variable")).
+parse_builtin_constraint(functor(Const, Args, Context), Result) :-
+    ( Const = atom("true"), Args = [] ->
+        Result = ok(true)
+    ; Const = atom("fail"), Args = [] ->
+        Result = ok(fail)
+    ; Const = atom("="), Args = [TermA, TermB] ->
+        Result = ok(unify(TermA, TermB))
+    ;
+        Result = error(Context, "unknown builtin constraint")
+    ).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
-:- func combine_result(func(T, U) = V, parse_result(T), parse_result(U)) = parse_result(V).
+:- func combine_results(func(T, U) = V, parse_result(T), parse_result(U)) = parse_result(V).
 
-combine_result(Combine, ok(A), ok(B)) = ok(Combine(A, B)).
-combine_result(_, ok(_), error(C, B)) = error(C, B).
-combine_result(_, error(C, A), _) = error(C, A).
+combine_results(Combine, ok(A), ok(B)) = ok(Combine(A, B)).
+combine_results(_, ok(_), error(C, B)) = error(C, B).
+combine_results(_, error(C, A), _) = error(C, A).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%

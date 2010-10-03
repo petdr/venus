@@ -21,7 +21,7 @@ main(!IO) :-
     ;
         true
     ),
-    read_chr_rule(_ : chr_io.read_result(chr_rule), !IO),
+    read_chr_rule(_ : chr_io.read_result({varset, chr_rule}), !IO),
     read_chr_goal(Result, !IO),
     ( Result = ok({Varset, Goal}),
         solutions(solve([], Varset, Goal), Solutions),
