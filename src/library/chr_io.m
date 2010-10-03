@@ -57,14 +57,14 @@
 read_chr(Result, !IO) :-
     parser.read_term_with_op_table(chr_op_table, ReadResult, !IO),
     ( ReadResult = term(Varset, Term),
-        parse_chr_goal(Term, GoalResult),
-        ( GoalResult = ok(Goal),
-            Result = ok(goal(Varset, Goal))
-        ; GoalResult = error(_, _),
-            parse_chr_rule(Term, RuleResult),
-            ( RuleResult = ok(Rule),
-                Result = ok(rule(Varset, Rule))
-            ; RuleResult = error(C, Err),
+        parse_chr_rule(Term, RuleResult),
+        ( RuleResult = ok(Rule),
+            Result = ok(rule(Varset, Rule))
+        ; RuleResult = error(_, _),
+            parse_chr_goal(Term, GoalResult),
+            ( GoalResult = ok(Goal),
+                Result = ok(goal(Varset, Goal))
+            ; GoalResult = error(C, Err),
                 Result = error(C, Err)
             )
         )
@@ -126,8 +126,10 @@ parse_chr_goal(functor(Const, Args, Context), Result) :-
         Result = ok(builtin(fail))
     ; Const = atom("="), Args = [TermA, TermB] ->
         Result = ok(builtin(unify(TermA, TermB)))
+    ; Const = atom(Name) ->
+        Result = ok(chr(chr(Name, Args)))
     ;
-        Result = error(Context, "Unknown term")
+        Result = error(Context, "unknown term")
     ).
 
 :- func to_conj(chr_goal(T), chr_goal(T)) = chr_goal(T).
