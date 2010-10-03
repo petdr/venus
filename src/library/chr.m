@@ -77,6 +77,7 @@
 
 :- import_module chr_io.
 
+:- import_module require.
 :- import_module set.
 
 :- type chr_program(T)
@@ -114,7 +115,6 @@ to_constraint(Varset, Var, builtin(unify(variable(Var, context_init), Term))) :-
     varset.search_var(Varset, Var, Term0),
     apply_rec_substitution(Term0, varset.get_bindings(Varset), Term).
 
-
 :- pred solve_2(chr_program(T)::in, chr_goal(T)::in, constraint_store(T)::in, constraint_store(T)::out) is nondet.
 
 solve_2(_Program, conj([]), !Store).
@@ -127,19 +127,59 @@ solve_2(Program, disj([G | Gs]), !Store) :-
     ;
         solve_2(Program, disj(Gs), !Store)
     ).
-solve_2(_Program, builtin(unify(TermA, TermB)), !Store) :-
-        % SOLVE
-    add_unify_constraint(TermA, TermB, !Store).
-solve_2(_Program, builtin(true), !Store).
-solve_2(_Program, builtin(fail), !Store) :-
-    fail.
-solve_2(_Program, chr(Constraint), !Store) :-
-        % ACTIVATE
-    fail.
+solve_2(Program, builtin(B), !Store) :-
+    add_constraint(builtin(B), !Store),
+    solve_chr(Program, !Store).
+solve_2(Program, chr(C), !Store) :-
+    add_constraint(chr(C), !Store),
+    solve_chr(Program, !Store).
 
-:- pred add_unify_constraint(term(T)::in, term(T)::in, constraint_store(T)::in, constraint_store(T)::out) is semidet.
+:- pred add_constraint(constraint(T)::in, constraint_store(T)::in, constraint_store(T)::out) is det.
 
-add_unify_constraint(TermA, TermB, !Store) :-
+add_constraint(Constraint, !Store) :-
+    require(unify(!.Store ^ a, []), "add_constraint expects an empty execution stack"),
+    !Store ^ a := [constraint(Constraint)].
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
+:- pred solve_chr(chr_program(T)::in, constraint_store(T)::in, constraint_store(T)::out) is semidet.
+
+solve_chr(_Program, !Store) :-
+    ( head_execution_stack(Head, !Store) ->
+        ( Head = constraint(builtin(Builtin)),
+            % SOLVE
+            solve_step(Builtin, !Store)
+        ; Head = constraint(chr(_CHR)),
+            % ACTIVATE
+            fail
+        ; Head = inactive(_CHR, _I),
+            % REACTIVATE
+            fail
+        ; Head = active(_CHR, _I, _J),
+            % DROP
+            % SIMPLIFY
+            % PROPAGATE
+            % DEFAULT
+            fail
+        )
+    ;
+        % There is nothing left on the execution stack, so we're finished.
+        true
+    ).
+
+:- pred head_execution_stack(execution(T)::out, constraint_store(T)::in, constraint_store(T)::out) is semidet.
+
+head_execution_stack(Head, !Store) :-
+    !.Store ^ a = [Head | A],
+    !Store ^ a := A.
+
+:- pred solve_step(builtin_constraint(T)::in, constraint_store(T)::in, constraint_store(T)::out) is semidet.
+
+solve_step(true, !Store).
+solve_step(fail, !Store) :-
+    fail.
+solve_step(unify(TermA, TermB), !Store) :-
     some [!Varset] (
         !:Varset = !.Store ^ b,
         unify_term(TermA, TermB, varset.get_bindings(!.Varset), Bindings),
@@ -147,7 +187,10 @@ add_unify_constraint(TermA, TermB, !Store) :-
         !Store ^ b := !.Varset
     ),
     wakeup_policy(!Store).
-
+    
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+    
     % Wakeup all non-fixed CHR constraints in the store and move
     % them to the head of the execution list.
 :- pred wakeup_policy(constraint_store(T)::in, constraint_store(T)::out) is det.
