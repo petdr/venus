@@ -83,6 +83,8 @@
 :- import_module require.
 :- import_module set.
 :- import_module svmap.
+:- import_module svset.
+:- import_module svvarset.
 
 :- type program_rules(T) == map(int, program_rule(T)).
 :- type chr_program(T)
@@ -137,7 +139,7 @@ to_constraint(Varset, Var, builtin(unify(variable(Var, context_init), Term))) :-
 :- pred create_chr_program(list(chr_rule(T))::in, chr_program(T)::out) is det.
 
 create_chr_program(Rules, program(ProgramRules, NumberOfHeadAtoms)) :-
-    list.foldl3(program_rule, Rules, 0, NumberOfHeadAtoms, 0, _NumRules, map.init, ProgramRules).
+    list.foldl3(program_rule, list.map(normalize_rule, Rules), 0, NumberOfHeadAtoms, 0, _NumRules, map.init, ProgramRules).
 
 :- pred program_rule(chr_rule(T)::in,
     int::in, int::out, int::in, int::out, program_rules(T)::in, program_rules(T)::out) is det.
@@ -147,6 +149,56 @@ program_rule(Rule @ chr_rule(_Name, Prop, Simp, _Guard, _Body, _Varset), !NumHea
     list.foldl2(add_index(ProgramRule), Simp, !NumHeadAtoms, !ProgramRules),
     list.foldl2(add_index(ProgramRule), Prop, !NumHeadAtoms, !ProgramRules),
     !:RuleNumber = !.RuleNumber + 1.
+
+:- func normalize_rule(chr_rule(T)) = chr_rule(T).
+
+normalize_rule(Rule0) = Rule :-
+    some [!Guard, !Varset, !SeenVars] (
+        !:Guard = Rule0 ^ chr_guard,
+        !:Varset = Rule0 ^ chr_varset,
+        !:SeenVars = set.init,
+
+        list.map_foldl3(normalize_constraint, Rule0 ^ chr_prop, Prop, !Guard, !Varset, !SeenVars),
+        list.map_foldl3(normalize_constraint, Rule0 ^ chr_simp, Simp, !Guard, !Varset, !.SeenVars, _),
+
+        Rule = (((Rule0
+            ^ chr_prop := Prop)
+            ^ chr_simp := Simp)
+            ^ chr_guard := !.Guard)
+            ^ chr_varset := !.Varset
+    ).
+
+:- pred normalize_constraint(chr_constraint(T)::in, chr_constraint(T)::out,
+    builtin_constraints(T)::in, builtin_constraints(T)::out, varset(T)::in, varset(T)::out, set(var(T))::in, set(var(T))::out) is det.
+
+normalize_constraint(chr(Name, !.Args), chr(Name, !:Args), !Guard, !Varset, !SeenVars) :-
+    list.map_foldl3(normalize_chr_arg, !Args, !Guard, !Varset, !SeenVars).
+    
+:- pred normalize_chr_arg(term(T)::in, term(T)::out,
+    builtin_constraints(T)::in, builtin_constraints(T)::out, varset(T)::in, varset(T)::out, set(var(T))::in, set(var(T))::out) is det.
+
+normalize_chr_arg(Term0 @ variable(Var, Context), Term, !Guard, !Varset, !SeenVars) :-
+    ( set.member(Var, !.SeenVars) ->
+        svvarset.new_var(NewVar, !Varset),
+        Term = variable(NewVar, Context),
+
+        list.cons(unify(Term, Term0), !Guard),
+
+        svset.insert(NewVar, !SeenVars)
+    ;
+        Term = Term0,
+        svset.insert(Var, !SeenVars)
+    ).
+normalize_chr_arg(Term0 @ functor(_, _, _), Term, !Guard, !Varset, !SeenVars) :-
+    svvarset.new_var(NewVar, !Varset),
+    Term = variable(NewVar, context_init),
+
+    list.cons(unify(Term, Term0), !Guard),
+
+    svset.insert(NewVar, !SeenVars).
+    
+
+
 
 :- pred add_index(program_rule(T)::in, chr_constraint(T)::in,
     int::in, int::out, program_rules(T)::in, program_rules(T)::out) is det.
