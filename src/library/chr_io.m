@@ -19,14 +19,14 @@
 
 :- type goal_or_rule(T)
     --->    goal(varset(T), chr_goal(T))
-    ;       rule(varset(T), chr_rule(T))
+    ;       rule(chr_rule(T))
     .
 
 :- pred read_chr(chr_io.read_result(goal_or_rule(T))::out, io::di, io::uo) is det.
 
 :- pred read_chr_goal(chr_io.read_result({varset(T), chr_goal(T)})::out, io::di, io::uo) is det.
 
-:- pred read_chr_rule(chr_io.read_result({varset(T), chr_rule(T)})::out, io::di, io::uo) is det.
+:- pred read_chr_rule(chr_io.read_result(chr_rule(T))::out, io::di, io::uo) is det.
 
 %------------------------------------------------------------------------------%
 
@@ -37,7 +37,7 @@
 
 :- pred parse_chr_goal(term(T)::in, parse_result(chr_goal(T))::out) is det.
 
-:- pred parse_chr_rule(term(T)::in, parse_result(chr_rule(T))::out) is det.
+:- pred parse_chr_rule(varset(T)::in, term(T)::in, parse_result(chr_rule(T))::out) is det.
 
 %------------------------------------------------------------------------------%
 
@@ -57,9 +57,9 @@
 read_chr(Result, !IO) :-
     parser.read_term_with_op_table(chr_op_table, ReadResult, !IO),
     ( ReadResult = term(Varset, Term),
-        parse_chr_rule(Term, RuleResult),
+        parse_chr_rule(Varset, Term, RuleResult),
         ( RuleResult = ok(Rule),
-            Result = ok(rule(Varset, Rule))
+            Result = ok(rule(Rule))
         ; RuleResult = error(_, _),
             parse_chr_goal(Term, GoalResult),
             ( GoalResult = ok(Goal),
@@ -95,9 +95,9 @@ read_chr_goal(Result, !IO) :-
 read_chr_rule(Result, !IO) :-
     parser.read_term_with_op_table(chr_op_table, ReadResult, !IO),
     ( ReadResult = term(Varset, Term),
-        parse_chr_rule(Term, RuleResult),
+        parse_chr_rule(Varset, Term, RuleResult),
         ( RuleResult = ok(Rule),
-            Result = ok({Varset, Rule})
+            Result = ok(Rule)
         ; RuleResult = error(Context, Err),
             Result = error(Context, Err)
         )
@@ -152,8 +152,8 @@ to_disj(GoalA, GoalB) = disj(Goals) :-
         
 %------------------------------------------------------------------------------%
 
-parse_chr_rule(variable(_V, C), error(C, "Unexpected variable")).
-parse_chr_rule(Term @ functor(Const, Args, _Context), Result) :-
+parse_chr_rule(_Varset, variable(_V, C), error(C, "Unexpected variable")).
+parse_chr_rule(Varset, Term @ functor(Const, Args, _Context), Result) :-
     ( Const = atom("@"), Args = [RuleName, Rule0] ->
         parse_rule_name(RuleName, ResultA),
         Rule = Rule0
@@ -162,7 +162,7 @@ parse_chr_rule(Term @ functor(Const, Args, _Context), Result) :-
         Rule = Term
     ),
     parse_rule(Rule, ResultB),
-    Result = combine_results(to_chr_rule, ResultA, ResultB).
+    Result = combine_results(to_chr_rule(Varset), ResultA, ResultB).
 
 :- pred parse_rule_name(term(T)::in, parse_result(chr_name)::out) is det.
 
@@ -174,9 +174,9 @@ parse_rule_name(functor(Const, Args, Context), Result) :-
         Result = error(Context, "Expected rule name")
     ).
     
-:- func to_chr_rule(chr_name, unnamed_rule(T)) = chr_rule(T).
+:- func to_chr_rule(varset(T), chr_name, unnamed_rule(T)) = chr_rule(T).
 
-to_chr_rule(Name, {Prop, Simp, Guard, Body}) = chr_rule(Name, Prop, Simp, Guard, Body).
+to_chr_rule(Varset, Name, {Prop, Simp, Guard, Body}) = chr_rule(Name, Prop, Simp, Guard, Body, Varset).
 
 :- type unnamed_rule(T) == {chr_constraints(T), chr_constraints(T), builtin_constraints(T), constraints(T)}.
 

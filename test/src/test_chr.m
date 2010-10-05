@@ -33,7 +33,7 @@ main_2(!Rules, !IO) :-
             solutions(solve(list.reverse(!.Rules), Varset, Goal), Solutions),
             list.foldl(output_solution(Varset), Solutions, !IO),
             io.nl(!IO)
-        ; GoalOrRule = rule(_Varset, Rule),
+        ; GoalOrRule = rule(Rule),
             list.cons(Rule, !Rules)
         ),
         main_2(!Rules, !IO)

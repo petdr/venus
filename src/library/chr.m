@@ -29,7 +29,8 @@
                 chr_prop    :: chr_constraints(T),
                 chr_simp    :: chr_constraints(T),
                 chr_guard   :: builtin_constraints(T),
-                chr_body    :: constraints(T)
+                chr_body    :: constraints(T),
+                chr_varset  :: varset(T)
             ).
 
 :- type chr_name
@@ -132,7 +133,7 @@ create_chr_program(Rules, program(ProgramRules, NumberOfHeadAtoms)) :-
 :- pred program_rule(chr_rule(T)::in,
     int::in, int::out, int::in, int::out, program_rules(T)::in, program_rules(T)::out) is det.
 
-program_rule(Rule @ chr_rule(_Name, Prop, Simp, _Guard, _Body), !NumHeadAtoms, !RuleNumber, !ProgramRules) :-
+program_rule(Rule @ chr_rule(_Name, Prop, Simp, _Guard, _Body, _Varset), !NumHeadAtoms, !RuleNumber, !ProgramRules) :-
     ProgramRule = program_rule(!.RuleNumber, !.NumHeadAtoms + 1, Rule),
     list.foldl2(add_index(ProgramRule), Simp, !NumHeadAtoms, !ProgramRules),
     list.foldl2(add_index(ProgramRule), Prop, !NumHeadAtoms, !ProgramRules),
