@@ -115,11 +115,13 @@
 :- type constraint_store(T)
     --->    constraint_store(
                 a   :: list(execution(T)),
-                s   :: list(chr_store_elem(T)),
+                s   :: chr_store(T),
                 b   :: varset(T),
                 t   :: set(list(int)),
                 n   :: int
             ).
+
+:- type chr_store(T) == list(chr_store_elem(T)).
 
 :- type execution(T)
     --->    constraint(constraint(T))
@@ -272,11 +274,13 @@ solve_chr(Program, !Store) :-
         ; Head = inactive(CHR, I),
             reactivate_step(CHR, I, !Store)
         ; Head = active(CHR, I, J),
-            ( J > Program ^ number_of_head_atoms ->
-                drop_step(!Store)
+            ( drop_step(Program, J, !Store) ->
+                true
+            ; simplify_step(Program, CHR, I, J, !Store) ->
+                true
+            ; propagate_step(Program, CHR, I, J, !Store) ->
+                true
             ;
-                % SIMPLIFY
-                % PROPAGATE
                 default_step(CHR, I, J, !Store)
             )
         ),
@@ -319,19 +323,64 @@ activate_step(CHR, !Store) :-
 reactivate_step(CHR, I, !Store) :-
     !Store ^ a := [active(CHR, I, 1) | !.Store ^ a].
 
-:- pred drop_step(constraint_store(T)::in, constraint_store(T)::out) is det.
+:- pred drop_step(chr_program(T)::in, int::in, constraint_store(T)::in, constraint_store(T)::out) is semidet.
 
-    % The call to head_execution_stack has already removed the top most constraint
-    % from the stack, so we have to do nothing here.
-drop_step(!Store).
+drop_step(Program, J, !Store) :-
+    J > Program ^ number_of_head_atoms,
+
+        % The call to head_execution_stack has already removed the top most constraint
+        % from the stack, so we have to do nothing here.
+    true.
+
+:- pred simplify_step(chr_program(T)::in,
+    chr_constraint(T)::in, int::in, int::in, constraint_store(T)::in, constraint_store(T)::out) is semidet.
+
+simplify_step(Program, _Constraint, I, J, !Store) :-
+    Occurence = map.search(Program ^ occurences, J),
+    Occurence ^ occ_action = delete,
+    execute_occurence(Program, I, Occurence, !Store).
+
+:- pred propagate_step(chr_program(T)::in,
+    chr_constraint(T)::in, int::in, int::in, constraint_store(T)::in, constraint_store(T)::out) is semidet.
+
+propagate_step(Program, _Constraint, I, J, !Store) :-
+    Occurence = map.search(Program ^ occurences, J),
+    Occurence ^ occ_action = keep,
+    execute_occurence(Program, I, Occurence, !Store).
 
 :- pred default_step(chr_constraint(T)::in, int::in, int::in, constraint_store(T)::in, constraint_store(T)::out) is det.
 
 default_step(CHR, I, J, !Store) :-
     !Store ^ a := [active(CHR, I, J + 1) | !.Store ^ a].
-
     
 %------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
+:- pred execute_occurence(chr_program(T)::in, int::in, occurence(T)::in,
+    constraint_store(T)::in, constraint_store(T)::out) is semidet.
+
+execute_occurence(_Program, I, _Occurence, !Store) :-
+    promise_equivalent_solutions [!:Store] (
+        match_ith_constraint(I, !.Store ^ s, _IthConstraint, _S),
+            % XXX need to finish
+        !:Store = !.Store,
+        true
+    ).
+
+:- type renaming(T) == map(var(T), var(T)).
+
+:- pred match_ith_constraint(int::in, chr_store(T)::in, chr_store_elem(T)::out, chr_store(T)::out) is nondet.
+
+match_ith_constraint(I, [C | Cs], IthConstraint, RemainingStore) :-
+    (
+        C = numbered(_, I),
+        IthConstraint = C,
+        RemainingStore = Cs
+    ;
+        match_ith_constraint(I, Cs, IthConstraint, RemainingStore0),
+        RemainingStore = [C | RemainingStore0]
+    ).
+
 %------------------------------------------------------------------------------%
 
 :- pred rename_apart_occurence(occurence(T)::in, occurence(T)::out, varset(T)::in, varset(T)::out) is det.
