@@ -333,6 +333,36 @@ default_step(CHR, I, J, !Store) :-
     
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
+
+:- pred rename_apart_occurence(occurence(T)::in, occurence(T)::out, varset(T)::in, varset(T)::out) is det.
+
+rename_apart_occurence(!Occurence, !Varset) :-
+    varset.merge_subst(!.Varset, !.Occurence ^ occ_varset, !:Varset, Subst),
+    apply_rec_substitution_to_occurence(Subst, !Occurence).
+
+:- pred apply_rec_substitution_to_occurence(substitution(T)::in, occurence(T)::in, occurence(T)::out) is det.
+
+apply_rec_substitution_to_occurence(Subst, Occurence, RenamedOccurence) :-
+    RenamedOccurence = (((Occurence
+        ^ occ_active := apply_rec_substitution_to_chr(Subst, Occurence ^ occ_active))
+        ^ occ_prop := list.map(apply_rec_substitution_to_chr(Subst), Occurence ^ occ_prop))
+        ^ occ_simp := list.map(apply_rec_substitution_to_chr(Subst), Occurence ^ occ_simp))
+        ^ occ_guard := list.map(apply_rec_substitution_to_builtin(Subst), Occurence ^ occ_guard).
+
+:- func apply_rec_substitution_to_chr(substitution(T), chr_constraint(T)) = chr_constraint(T).
+
+apply_rec_substitution_to_chr(Subst, chr(Name, Args)) = chr(Name, apply_rec_substitution_to_list(Args, Subst)).
+
+:- func apply_rec_substitution_to_builtin(substitution(T), builtin_constraint(T)) = builtin_constraint(T).
+
+apply_rec_substitution_to_builtin(_, true) = true.
+apply_rec_substitution_to_builtin(_, fail) = fail.
+apply_rec_substitution_to_builtin(Subst, unify(TermA, TermB)) =
+    unify(apply_rec_substitution(TermA, Subst), apply_rec_substitution(TermB, Subst)).
+
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
     
     % Wakeup all non-fixed CHR constraints in the store and move
     % them to the head of the execution list.
