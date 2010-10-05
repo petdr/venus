@@ -125,6 +125,15 @@ solve(Rules, Varset0, Goal, Constraints) :-
         % XXX it would be nice to do more simplification
     list.filter_map(to_constraint(Varset), varset.vars(Varset), Constraints).
 
+:- pred to_constraint(varset(T)::in, var(T)::in, constraint(T)::out) is semidet.
+
+to_constraint(Varset, Var, builtin(unify(variable(Var, context_init), Term))) :-
+    varset.search_var(Varset, Var, Term0),
+    apply_rec_substitution(Term0, varset.get_bindings(Varset), Term).
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
 :- pred create_chr_program(list(chr_rule(T))::in, chr_program(T)::out) is det.
 
 create_chr_program(Rules, program(ProgramRules, NumberOfHeadAtoms)) :-
@@ -146,12 +155,8 @@ add_index(ProgRule, _Constraint, NumHeadAtoms, Index, !ProgramRules) :-
     Index = NumHeadAtoms + 1,
     svmap.set(Index, ProgRule, !ProgramRules).
     
-
-:- pred to_constraint(varset(T)::in, var(T)::in, constraint(T)::out) is semidet.
-
-to_constraint(Varset, Var, builtin(unify(variable(Var, context_init), Term))) :-
-    varset.search_var(Varset, Var, Term0),
-    apply_rec_substitution(Term0, varset.get_bindings(Varset), Term).
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
 
 :- pred solve_2(chr_program(T)::in, chr_goal(T)::in, constraint_store(T)::in, constraint_store(T)::out) is nondet.
 
