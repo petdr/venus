@@ -92,6 +92,7 @@
                 number_of_head_atoms    :: int
             ).
 
+:- type occurences(T) == map(int, occurence(T)).
 :- type occurence(T)
     --->    occ(
                 occ_active  :: chr_constraint(T),
@@ -152,13 +153,11 @@ to_constraint(Varset, Var, builtin(unify(variable(Var, context_init), Term))) :-
 create_chr_program(Rules, program(Occurences, NumberOfHeadAtoms)) :-
     list.foldl3(add_occurences, list.map(normalize_rule, Rules), 0, NumberOfHeadAtoms, 0, _NumRules, map.init, Occurences).
 
-:- type occurences(T) == map(int, occurence(T)).
 :- pred add_occurences(chr_rule(T)::in, int::in, int::out, int::in, int::out, occurences(T)::in, occurences(T)::out) is det.
 
-add_occurences(Rule, !NumHeadAtoms, !RuleNumber, !Occurences) :-
-    list.foldl2(add_simp_occurence(!.RuleNumber, Rule), Rule ^ chr_simp, !NumHeadAtoms, !Occurences),
-    list.foldl2(add_prop_occurence(!.RuleNumber, Rule), Rule ^ chr_prop, !NumHeadAtoms, !Occurences).
-    
+add_occurences(Rule, !NumHeadAtoms, RuleNumber, RuleNumber + 1, !Occurences) :-
+    list.foldl2(add_simp_occurence(RuleNumber, Rule), Rule ^ chr_simp, !NumHeadAtoms, !Occurences),
+    list.foldl2(add_prop_occurence(RuleNumber, Rule), Rule ^ chr_prop, !NumHeadAtoms, !Occurences).
 
 :- pred add_simp_occurence(int::in, chr_rule(T)::in, chr_constraint(T)::in, 
     int::in, int::out, occurences(T)::in, occurences(T)::out) is det.
