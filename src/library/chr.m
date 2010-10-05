@@ -86,19 +86,30 @@
 :- import_module svset.
 :- import_module svvarset.
 
-:- type program_rules(T) == map(int, program_rule(T)).
 :- type chr_program(T)
     --->    program(
-                rules                   :: program_rules(T),
+                occurences              :: occurences(T),
                 number_of_head_atoms    :: int
             ).
 
-:- type program_rule(T)
-    --->    program_rule(
-                rule_index              :: int,
-                first_head_atom_index   :: int,
-                program_rule            :: chr_rule(T)
+:- type occurence(T)
+    --->    occ(
+                occ_active  :: chr_constraint(T),
+                occ_action  :: keep_or_delete,
+                occ_index   :: int,
+                occ_prop    :: chr_constraints(T),
+                occ_simp    :: chr_constraints(T),
+                occ_guard   :: builtin_constraints(T),
+                occ_varset  :: varset(T),
+                occ_rule    :: int
             ).
+
+:- type keep_or_delete
+    --->    keep
+    ;       delete
+    .
+
+        
 
 :- type constraint_store(T)
     --->    constraint_store(
@@ -138,17 +149,40 @@ to_constraint(Varset, Var, builtin(unify(variable(Var, context_init), Term))) :-
 
 :- pred create_chr_program(list(chr_rule(T))::in, chr_program(T)::out) is det.
 
-create_chr_program(Rules, program(ProgramRules, NumberOfHeadAtoms)) :-
-    list.foldl3(program_rule, list.map(normalize_rule, Rules), 0, NumberOfHeadAtoms, 0, _NumRules, map.init, ProgramRules).
+create_chr_program(Rules, program(Occurences, NumberOfHeadAtoms)) :-
+    list.foldl3(add_occurences, list.map(normalize_rule, Rules), 0, NumberOfHeadAtoms, 0, _NumRules, map.init, Occurences).
 
-:- pred program_rule(chr_rule(T)::in,
-    int::in, int::out, int::in, int::out, program_rules(T)::in, program_rules(T)::out) is det.
+:- type occurences(T) == map(int, occurence(T)).
+:- pred add_occurences(chr_rule(T)::in, int::in, int::out, int::in, int::out, occurences(T)::in, occurences(T)::out) is det.
 
-program_rule(Rule @ chr_rule(_Name, Prop, Simp, _Guard, _Body, _Varset), !NumHeadAtoms, !RuleNumber, !ProgramRules) :-
-    ProgramRule = program_rule(!.RuleNumber, !.NumHeadAtoms + 1, Rule),
-    list.foldl2(add_index(ProgramRule), Simp, !NumHeadAtoms, !ProgramRules),
-    list.foldl2(add_index(ProgramRule), Prop, !NumHeadAtoms, !ProgramRules),
-    !:RuleNumber = !.RuleNumber + 1.
+add_occurences(Rule, !NumHeadAtoms, !RuleNumber, !Occurences) :-
+    list.foldl2(add_simp_occurence(!.RuleNumber, Rule), Rule ^ chr_simp, !NumHeadAtoms, !Occurences),
+    list.foldl2(add_prop_occurence(!.RuleNumber, Rule), Rule ^ chr_prop, !NumHeadAtoms, !Occurences).
+    
+
+:- pred add_simp_occurence(int::in, chr_rule(T)::in, chr_constraint(T)::in, 
+    int::in, int::out, occurences(T)::in, occurences(T)::out) is det.
+
+add_simp_occurence(RuleNumber, Rule, SimpConstraint, NumHeadAtoms, Index, !Occurences) :-
+    Index = NumHeadAtoms + 1,
+    ( list.delete_first(Rule ^ chr_simp, SimpConstraint, Simp) ->
+        Occ = occ(SimpConstraint, delete, Index, Rule ^ chr_prop, Simp, Rule ^ chr_guard, Rule ^ chr_varset, RuleNumber),
+        svmap.set(Index, Occ, !Occurences)
+    ;
+        error("add_simp_occurence: unable to find constraint")
+    ).
+
+:- pred add_prop_occurence(int::in, chr_rule(T)::in, chr_constraint(T)::in, 
+    int::in, int::out, occurences(T)::in, occurences(T)::out) is det.
+
+add_prop_occurence(RuleNumber, Rule, PropConstraint, NumHeadAtoms, Index, !Occurences) :-
+    Index = NumHeadAtoms + 1,
+    ( list.delete_first(Rule ^ chr_prop, PropConstraint, Prop) ->
+        Occ = occ(PropConstraint, keep, Index, Prop, Rule ^ chr_simp, Rule ^ chr_guard, Rule ^ chr_varset, RuleNumber),
+        svmap.set(Index, Occ, !Occurences)
+    ;
+        error("add_prop_occurence: unable to find constraint")
+    ).
 
 :- func normalize_rule(chr_rule(T)) = chr_rule(T).
 
@@ -196,16 +230,6 @@ normalize_chr_arg(Term0 @ functor(_, _, _), Term, !Guard, !Varset, !SeenVars) :-
     list.cons(unify(Term, Term0), !Guard),
 
     svset.insert(NewVar, !SeenVars).
-    
-
-
-
-:- pred add_index(program_rule(T)::in, chr_constraint(T)::in,
-    int::in, int::out, program_rules(T)::in, program_rules(T)::out) is det.
-
-add_index(ProgRule, _Constraint, NumHeadAtoms, Index, !ProgramRules) :-
-    Index = NumHeadAtoms + 1,
-    svmap.set(Index, ProgRule, !ProgramRules).
     
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
