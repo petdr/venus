@@ -442,11 +442,10 @@ propagation_history_id(rule_id(R), I, Prop, Simp) = [R, I] ++ list.map(ToId, Pro
 
 %------------------------------------------------------------------------------%
 
-:- pred match_ith_constraint(chr_constraint(T)::in, int::in, chr_store(T)::in, chr_store(T)::out) is nondet.
+:- pred match_ith_constraint(chr_constraint(T)::in, int::in, chr_store(T)::in, chr_store(T)::out) is semidet.
 
 match_ith_constraint(Constraint, I, [C | Cs], RemainingStore) :-
-    (
-        C = numbered(Constraint, I),
+    ( C = numbered(Constraint, I) ->
         RemainingStore = Cs
     ;
         match_ith_constraint(Constraint, I, Cs, RemainingStore0),
