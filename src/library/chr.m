@@ -571,11 +571,13 @@ apply_rec_substitution_to_builtin(Subst, C) =
 :- pred apply_ho_substitution_to_occurence(subst_func(T)::in, substitution(T)::in, occurence(T)::in, occurence(T)::out) is det.
 
 apply_ho_substitution_to_occurence(F, Subst, Occurence, RenamedOccurence) :-
-    RenamedOccurence = (((Occurence
+    RenamedOccurence = ((((Occurence
         ^ occ_active := apply_ho_substitution_to_chr(F, Subst, Occurence ^ occ_active))
         ^ occ_prop := list.map(apply_ho_substitution_to_chr(F, Subst), Occurence ^ occ_prop))
         ^ occ_simp := list.map(apply_ho_substitution_to_chr(F, Subst), Occurence ^ occ_simp))
-        ^ occ_guard := list.map(apply_ho_substitution_to_builtin(F, Subst), Occurence ^ occ_guard).
+        ^ occ_guard := list.map(apply_ho_substitution_to_builtin(F, Subst), Occurence ^ occ_guard))
+        ^ occ_body := list.map(apply_ho_substitution_to_constraint(F, Subst), Occurence ^ occ_body).
+
 
 :- func apply_ho_substitution_to_constraint(subst_func(T), substitution(T), constraint(T)) = constraint(T).
 
