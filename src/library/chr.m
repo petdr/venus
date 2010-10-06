@@ -75,7 +75,8 @@
     %
 :- type builtin_constraints(T) == list(builtin_constraint(T)).
 :- type builtin_constraint(T)
-    --->    unify(term(T), term(T))
+    --->    unify(term(T), term(T))     % = in prolog
+    ;       equals(term(T), term(T))  % == in prolog
     ;       true
     ;       fail
     .
@@ -211,7 +212,6 @@ to_constraint(Varset, Var, builtin(unify(variable(Var, context_init), Term))) :-
     varset.search_var(Varset, Var, Term0),
     apply_rec_substitution(Term0, varset.get_bindings(Varset), Term).
 
-
 :- func to_chr_constraint(varset(T), chr_store_elem(T)) = constraint(T).
 
 to_chr_constraint(Varset, numbered(chr(Name, Args), _N)) =
@@ -296,7 +296,7 @@ normalize_chr_arg(Term0 @ variable(Var, Context), Term, !Guard, !Varset, !SeenVa
         svvarset.new_var(NewVar, !Varset),
         Term = variable(NewVar, Context),
 
-        list.cons(unify(Term, Term0), !Guard),
+        list.cons(equals(Term, Term0), !Guard),
 
         svset.insert(NewVar, !SeenVars)
     ;
@@ -307,7 +307,7 @@ normalize_chr_arg(Term0 @ functor(_, _, _), Term, !Guard, !Varset, !SeenVars) :-
     svvarset.new_var(NewVar, !Varset),
     Term = variable(NewVar, context_init),
 
-    list.cons(unify(Term, Term0), !Guard),
+    list.cons(equals(Term, Term0), !Guard),
 
     svset.insert(NewVar, !SeenVars).
     
@@ -390,6 +390,11 @@ head_execution_stack(Head, !Store) :-
 solve_step(true, !Store).
 solve_step(fail, !Store) :-
     fail.
+solve_step(equals(TermA0, TermB0), !Store) :-
+        Bindings = varset.get_bindings(!.Store ^ b),
+        apply_rec_substitution(TermA0, Bindings, TermA),
+        apply_rec_substitution(TermB0, Bindings, TermB),
+        terms_equal(TermA, TermB).
 solve_step(unify(TermA, TermB), !Store) :-
     some [!Varset] (
         !:Varset = !.Store ^ b,
@@ -586,22 +591,42 @@ match_head_to_store(HeadTerm, StoreTerm, !Subst) :-
 
 :- pred check_guard(varset(T)::in, builtin_constraints(T)::in) is semidet.
 
-check_guard(_Varset, []).
-check_guard(Varset, [C | Cs]) :-
-    check_guard_2(Varset, C),
-    check_guard(Varset, Cs).
+check_guard(Varset, Builtins) :-
+    check_guard_2(Builtins, Varset, _).
 
-:- pred check_guard_2(varset(T)::in, builtin_constraint(T)::in) is semidet.
+:- pred check_guard_2(builtin_constraints(T)::in, varset(T)::in, varset(T)::out) is semidet.
 
-check_guard_2(_, true) :-
+check_guard_2([], !Varset).
+check_guard_2([C | Cs], !Varset) :-
+    check_guard_3(C, !Varset),
+    check_guard_2(Cs, !Varset).
+
+:- pred check_guard_3(builtin_constraint(T)::in, varset(T)::in, varset(T)::out) is semidet.
+
+check_guard_3(true, !Varset) :-
     true.
-check_guard_2(_, fail) :-
+check_guard_3(fail, !Varset) :-
     fail.
-check_guard_2(Varset, unify(TermA0, TermB0)) :-
-    apply_rec_substitution(TermA0, varset.get_bindings(Varset), TermA),
-    apply_rec_substitution(TermB0, varset.get_bindings(Varset), TermB),
-        % XXX pretty sure that this is wrong!
-    TermA = TermB.
+check_guard_3(equals(TermA0, TermB0), !Varset) :-
+    apply_rec_substitution(TermA0, varset.get_bindings(!.Varset), TermA),
+    apply_rec_substitution(TermB0, varset.get_bindings(!.Varset), TermB),
+    terms_equal(TermA, TermB).
+check_guard_3(unify(TermA, TermB), !Varset) :-
+    unify_term(TermA, TermB, varset.get_bindings(!.Varset), Bindings),
+    varset.set_bindings(!.Varset, Bindings, !:Varset).
+
+:- pred terms_equal(term(T)::in, term(T)::in) is semidet.
+
+terms_equal(variable(Var, _), variable(Var, _)).
+terms_equal(functor(Name, ArgsA, _), functor(Name, ArgsB, _)) :-
+    terms_list_equal(ArgsA, ArgsB).
+
+:- pred terms_list_equal(list(term(T))::in, list(term(T))::in) is semidet.
+
+terms_list_equal([], []).
+terms_list_equal([A | As], [B | Bs]) :-
+    terms_equal(A, B),
+    terms_list_equal(As, Bs).
 
 %------------------------------------------------------------------------------%
 
@@ -683,6 +708,8 @@ apply_ho_substitution_to_chr(F, Subst, chr(Name, Args)) = chr(Name, list.map(fun
 
 apply_ho_substitution_to_builtin(_, _, true) = true.
 apply_ho_substitution_to_builtin(_, _, fail) = fail.
+apply_ho_substitution_to_builtin(F, Subst, equals(TermA, TermB)) =
+    equals(F(TermA, Subst), F(TermB, Subst)).
 apply_ho_substitution_to_builtin(F, Subst, unify(TermA, TermB)) =
     unify(F(TermA, Subst), F(TermB, Subst)).
 
@@ -720,6 +747,7 @@ is_ground_in_bindings(Subst, Term) :-
 
 chr_goal_vars(conj(Gs)) = set.union_list(list.map(chr_goal_vars, Gs)).
 chr_goal_vars(disj(Gs)) = set.union_list(list.map(chr_goal_vars, Gs)).
+chr_goal_vars(builtin(equals(TermA, TermB))) = set(vars(TermA)) `set.union` set(vars(TermB)).
 chr_goal_vars(builtin(unify(TermA, TermB))) = set(vars(TermA)) `set.union` set(vars(TermB)).
 chr_goal_vars(builtin(true)) = set.init.
 chr_goal_vars(builtin(fail)) = set.init.

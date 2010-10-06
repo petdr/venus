@@ -307,6 +307,10 @@ output_constraint(Varset, builtin(unify(TermA, TermB)), !IO) :-
     term_io.write_term(Varset, TermA, !IO),
     io.write_string(" = ", !IO),
     term_io.write_term(Varset, TermB, !IO).
+output_constraint(Varset, builtin(equals(TermA, TermB)), !IO) :-
+    term_io.write_term(Varset, TermA, !IO),
+    io.write_string(" == ", !IO),
+    term_io.write_term(Varset, TermB, !IO).
 output_constraint(_Varset, builtin(true), !IO) :-
     io.write_string("true", !IO).
 output_constraint(_Varset, builtin(fail), !IO) :-
@@ -349,6 +353,11 @@ output_chr_goal_2(Indent, _Varset, builtin(fail), !IO) :-
 output_chr_goal_2(Indent, _Varset, builtin(true), !IO) :-
     output_indent(Indent, !IO),
     io.write_string("true", !IO).
+output_chr_goal_2(Indent, Varset, builtin(equals(TermA, TermB)), !IO) :-
+    output_indent(Indent, !IO),
+    term_io.write_term(Varset, TermA, !IO),
+    io.write_string(" == ", !IO),
+    term_io.write_term(Varset, TermB, !IO).
 output_chr_goal_2(Indent, Varset, builtin(unify(TermA, TermB)), !IO) :-
     output_indent(Indent, !IO),
     term_io.write_term(Varset, TermA, !IO),
