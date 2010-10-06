@@ -149,6 +149,7 @@ typecheck_pred(HLDS, !Pred, Errors) :-
             Rules = [],
             solutions(solve(Rules, !.TCI ^ tvarset, Constraint), Solns),
             trace [io(!IO)] (
+                io.write_string("*** Goal ***\n", !IO),
                 output_chr_goal(!.TCI ^ tvarset, Constraint, !IO),
                 list.foldl(output_solution(!.TCI ^ tvarset), Solns, !IO),
                 io.nl(!IO),
@@ -445,124 +446,6 @@ type_term_to_prog_type(term.functor(atom(Atom), Args, _), Type) :-
     ;
         list.map(type_term_to_prog_type, Args, Types),
         Type = defined_type(string_to_sym_name(Atom), Types)
-    ).
-
-%------------------------------------------------------------------------------%
-%------------------------------------------------------------------------------%
-
-    % Take a constraint and flatten all the disjunctions and conjunctions.
-:- func flatten(chr_goal(T)) = chr_goal(T).
-
-flatten(conj(Gs)) = conj(list.reverse(list.foldl(flatten_conj, Gs, []))).
-flatten(disj(Gs)) = disj(list.reverse(list.foldl(flatten_disj, Gs, []))).
-flatten(C @ builtin(_)) = C.
-flatten(C @ chr(_)) = C.
-
-:- func flatten_conj(chr_goal(T), list(chr_goal(T))) = list(chr_goal(T)).
-
-flatten_conj(C0, !.Gs) = !:Gs :-
-    C = flatten(C0),
-    ( C = conj(Cs) ->
-        list.append(Cs, !Gs)
-    ;
-        list.append([C], !Gs)
-    ).
-
-:- func flatten_disj(chr_goal(T), list(chr_goal(T))) = list(chr_goal(T)).
-
-flatten_disj(C0, !.Gs) = !:Gs :-
-    C = flatten(C0),
-    ( C = disj(Cs) ->
-        list.append(Cs, !Gs)
-    ;
-        list.append([C], !Gs)
-    ).
-
-%------------------------------------------------------------------------------%
-%------------------------------------------------------------------------------%
-
-:- pred output_chr_goal(varset(T)::in, chr_goal(T)::in, io::di, io::uo) is det.
-
-output_chr_goal(Varset, Constraint, !IO) :-
-    io.write_string("*** Constraint ***", !IO),
-    output_chr_goal_2(0, Varset, flatten(Constraint), !IO),
-    io.nl(!IO).
-
-%------------------------------------------------------------------------------%
-
-:- pred output_chr_goal_2(int::in, varset(T)::in, chr_goal(T)::in, io::di, io::uo) is det.
-
-output_chr_goal_2(Indent, Varset, conj(Cs), !IO) :-
-    ( Cs = [],
-        output_indent(Indent, !IO),
-        io.write_string("true", !IO)
-    ; Cs = [H | T],
-        output_chr_goal_2(Indent, Varset, H, !IO),
-        output_chr_goal_list(Indent, Varset, conj_sep, T, !IO)
-    ).
-output_chr_goal_2(Indent, Varset, disj(Cs), !IO) :-
-    ( Cs = [],
-        output_indent(Indent, !IO),
-        io.write_string("fail", !IO)
-    ; Cs = [H|T],
-        output_indent(Indent, !IO),
-        io.write_string("(", !IO),
-        output_chr_goal_2(Indent + 1, Varset, H, !IO),
-        output_chr_goal_list(Indent + 1, Varset, disj_sep, T, !IO),
-        output_indent(Indent, !IO),
-        io.write_string(")", !IO)
-    ).
-output_chr_goal_2(Indent, _Varset, builtin(fail), !IO) :-
-    output_indent(Indent, !IO),
-    io.write_string("true", !IO).
-output_chr_goal_2(Indent, _Varset, builtin(true), !IO) :-
-    output_indent(Indent, !IO),
-    io.write_string("true", !IO).
-output_chr_goal_2(Indent, Varset, builtin(unify(TermA, TermB)), !IO) :-
-    output_indent(Indent, !IO),
-    term_io.write_term(Varset, TermA, !IO),
-    io.write_string(" = ", !IO),
-    term_io.write_term(Varset, TermB, !IO).
-output_chr_goal_2(Indent, Varset, chr(chr(Name, Args)), !IO) :-
-    output_indent(Indent, !IO),
-    term_io.write_term(Varset, functor(Name, Args), !IO).
-
-%------------------------------------------------------------------------------%
-
-:- type sep
-    --->    conj_sep
-    ;       disj_sep
-    .
-
-:- pred output_chr_goal_list(int::in, varset(T)::in, sep::in, list(chr_goal(T))::in, io::di, io::uo) is det.
-
-output_chr_goal_list(_Indent, _Varset, _Sep, [], !IO).
-output_chr_goal_list(Indent, Varset, Sep, [C | Cs], !IO) :-
-    ( Sep = conj_sep,
-        io.write_string(",", !IO)
-    ; Sep = disj_sep,
-        output_indent(Indent - 1, !IO),
-        io.write_string(";", !IO)
-    ),
-    output_chr_goal_2(Indent, Varset, C, !IO),
-    output_chr_goal_list(Indent, Varset, Sep, Cs, !IO).
-
-%------------------------------------------------------------------------------%
-
-:- pred output_indent(int::in, io::di, io::uo) is det.
-
-output_indent(N, !IO) :-
-    io.nl(!IO),
-    output_indent_2(N, !IO).
-
-:- pred output_indent_2(int::in, io::di, io::uo) is det.
-
-output_indent_2(N, !IO) :-
-    ( N > 0 ->
-        io.write_string(" ", !IO),
-        output_indent_2(N - 1, !IO)
-    ;
-        true
     ).
 
 %------------------------------------------------------------------------------%
