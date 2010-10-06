@@ -612,6 +612,8 @@ check_guard_3(equals(TermA0, TermB0), !Varset) :-
     apply_rec_substitution(TermB0, varset.get_bindings(!.Varset), TermB),
     terms_equal(TermA, TermB).
 check_guard_3(unify(TermA, TermB), !Varset) :-
+        % XXX I'm not sure if unification ever makes sense in a guard,
+        % should we throw an exception here?
     unify_term(TermA, TermB, varset.get_bindings(!.Varset), Bindings),
     varset.set_bindings(!.Varset, Bindings, !:Varset).
 
