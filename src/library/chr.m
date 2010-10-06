@@ -9,6 +9,7 @@
 :- import_module term.
 :- import_module varset.
 
+    % This is the CLP goal that we we will attempt to solve.
 :- type chr_goal(T)
     --->    conj(list(chr_goal(T)))
     ;       disj(list(chr_goal(T)))
@@ -16,6 +17,11 @@
     ;       chr(chr_constraint(T))
     .
 
+    % solve(Rules, Varset, Goal, Constraints) 
+    %
+    % returns the set of constraints that are entailed by solving the Goal with the associated
+    % CHR rules.  The varset is the varset associated with the goal.
+    %
 :- pred solve(list(chr_rule(T))::in, varset(T)::in, chr_goal(T)::in, list(constraint(T))::out) is nondet.
 
 %------------------------------------------------------------------------------%
@@ -23,6 +29,11 @@
 % Describe CHR rules
 
 :- type chr_rules(T) == list(chr_rule(T)).
+
+    % chr_rule(Name, Prop, Simp, Guard, Body)
+    % represents the following CHR rule
+    %   Name @ Prop / Simp <=> Guard | Body.
+    %
 :- type chr_rule(T)
     --->    chr_rule(
                 chr_name    :: chr_name,
@@ -38,12 +49,19 @@
     ;       no_name
     .
 
+    % A constraint is either a CHR constraint
+    % or a builtin constraint.
+    %
 :- type constraints(T) == list(constraint(T)).
 :- type constraint(T)
     --->    chr(chr_constraint(T))
     ;       builtin(builtin_constraint(T))
     .
 
+    %
+    % A CHR constraint consists of a name
+    % plus a set of herbrand terms for arguments
+    %
 :- type chr_constraints(T) == list(chr_constraint(T)).
 :- type chr_constraint(T)
     --->    chr(
@@ -51,6 +69,10 @@
                 list(term(T))
             ).
 
+    %
+    % The builtin constraints supported by the system.
+    % Currently only herbrand constraints are supported.
+    %
 :- type builtin_constraints(T) == list(builtin_constraint(T)).
 :- type builtin_constraint(T)
     --->    unify(term(T), term(T))
@@ -86,6 +108,10 @@
 :- import_module svset.
 :- import_module svvarset.
 
+    % The chr_program contains a representation of the
+    % rules in a compiled form that are easier to use
+    % during interpretation.
+    %
 :- type chr_program(T)
     --->    program(
                 occurences              :: occurences(T),
@@ -93,19 +119,44 @@
             ).
 
 :- type occurences(T) == map(int, occurence(T)).
+
+    % An occurence records all the information needed to fire the active
+    % constraint.
+    %
 :- type occurence(T)
     --->    occ(
+                    % The active constraint
                 occ_active  :: chr_constraint(T),
+
+                    % Do we keep or delete the active constraint
                 occ_action  :: keep_or_delete,
+
+                    % The index into the CHR rule head atoms
                 occ_index   :: int,
+
+                    % The propagation constraints
+                    % which are not the active constraint.
                 occ_prop    :: chr_constraints(T),
+
+                    % The simplification constraints
+                    % which are not the active constraint.
                 occ_simp    :: chr_constraints(T),
+
+                    % The guard of the rule
                 occ_guard   :: builtin_constraints(T),
+
+                    % The body of the rules
                 occ_body    :: constraints(T),
+
+                    % The varset associated with all the terms
                 occ_varset  :: varset(T),
+                    
+                    % An id which uniquely identifies the rule
                 occ_rule    :: rule_id
             ).
 
+    % Do we keep or delete the active constraint
+    % from the chr_store?
 :- type keep_or_delete
     --->    keep
     ;       delete
@@ -115,21 +166,33 @@
 
 :- type constraint_store(T)
     --->    constraint_store(
+                    % The execution stack
                 a   :: list(execution(T)),
+                    
+                    % The store of CHR constraints
                 s   :: chr_store(T),
+
+                    % The store which holds the builtin constraints
                 b   :: varset(T),
+
+                    % The propogation history
                 t   :: set(list(int)),
+                    
+                    % The next available identifier
                 n   :: int
             ).
 
 :- type chr_store(T) == list(chr_store_elem(T)).
 
+    % The execution stack consists of standard constraints,
+    % inactive CHR constraints and CHR constraints.
 :- type execution(T)
     --->    constraint(constraint(T))
     ;       inactive(chr_constraint(T), int)
     ;       active(chr_constraint(T), int, int)
     .
 
+    % The CHR store consists of numbered CHR constraints.
 :- type chr_store_elem(T)
     --->    numbered(chr_constraint(T), int)
     .
@@ -187,6 +250,12 @@ add_prop_occurence(RuleId, Rule, PropConstraint, NumHeadAtoms, Index, !Occurence
         error("add_prop_occurence: unable to find constraint")
     ).
 
+    % Normalize rule takes the head atoms of each rule and makes each head atom consist of unique variables.
+    % This implies that new builtin constraints are added to the guard to model the relationship between
+    % the head variables.
+    %
+    % This is done to make matching a lot easier.
+    % 
 :- func normalize_rule(chr_rule(T)) = chr_rule(T).
 
 normalize_rule(Rule0) = Rule :-
@@ -206,13 +275,15 @@ normalize_rule(Rule0) = Rule :-
     ).
 
 :- pred normalize_constraint(chr_constraint(T)::in, chr_constraint(T)::out,
-    builtin_constraints(T)::in, builtin_constraints(T)::out, varset(T)::in, varset(T)::out, set(var(T))::in, set(var(T))::out) is det.
+    builtin_constraints(T)::in, builtin_constraints(T)::out, varset(T)::in, varset(T)::out,
+    set(var(T))::in, set(var(T))::out) is det.
 
 normalize_constraint(chr(Name, !.Args), chr(Name, !:Args), !Guard, !Varset, !SeenVars) :-
     list.map_foldl3(normalize_chr_arg, !Args, !Guard, !Varset, !SeenVars).
     
 :- pred normalize_chr_arg(term(T)::in, term(T)::out,
-    builtin_constraints(T)::in, builtin_constraints(T)::out, varset(T)::in, varset(T)::out, set(var(T))::in, set(var(T))::out) is det.
+    builtin_constraints(T)::in, builtin_constraints(T)::out, varset(T)::in, varset(T)::out,
+    set(var(T))::in, set(var(T))::out) is det.
 
 normalize_chr_arg(Term0 @ variable(Var, Context), Term, !Guard, !Varset, !SeenVars) :-
     ( set.member(Var, !.SeenVars) ->
@@ -237,6 +308,8 @@ normalize_chr_arg(Term0 @ functor(_, _, _), Term, !Guard, !Varset, !SeenVars) :-
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
+    % solve_2 implements the search part of solving the constraints.
+    % The search is standard prolog depth-first search.
 :- pred solve_2(chr_program(T)::in, chr_goal(T)::in, constraint_store(T)::in, constraint_store(T)::out) is nondet.
 
 solve_2(_Program, conj([]), !Store).
@@ -265,6 +338,10 @@ add_constraint(Constraint, !Store) :-
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
+    % solve_chr implements an interpreter for the refined operation semantics.
+    % See "Compilation of Constraint Handling Rules" by Gregory J. Duck, section 3.3
+    % for a description fo this state machine.
+    %
 :- pred solve_chr(chr_program(T)::in, constraint_store(T)::in, constraint_store(T)::out) is semidet.
 
 solve_chr(Program, !Store) :-
@@ -298,6 +375,10 @@ head_execution_stack(Head, !Store) :-
     !.Store ^ a = [Head | A],
     !Store ^ a := A.
 
+    % The solve step solves the given builtin constraint.
+    % If the builtin constraint modifies the builtin constraint store, we wake
+    % any CHR constraints which can now fire.
+    %
 :- pred solve_step(builtin_constraint(T)::in, constraint_store(T)::in, constraint_store(T)::out) is semidet.
 
 solve_step(true, !Store).
@@ -312,6 +393,8 @@ solve_step(unify(TermA, TermB), !Store) :-
     ),
     wakeup_policy(!Store).
 
+    % The activate step takes a CHR constraint, adds it as an active constraint to
+    % the execution stack and to the CHR store.
 :- pred activate_step(chr_constraint(T)::in, constraint_store(T)::in, constraint_store(T)::out) is det.
 
 activate_step(CHR, !Store) :-
@@ -320,11 +403,16 @@ activate_step(CHR, !Store) :-
     !Store ^ s := [numbered(CHR, N) | !.Store ^ s],
     !Store ^ n := N + 1.
 
+    % The reactivate step takes an inactive constraint on the execution stack and 
+    % activates it.
+    %
 :- pred reactivate_step(chr_constraint(T)::in, int::in, constraint_store(T)::in, constraint_store(T)::out) is det.
 
 reactivate_step(CHR, I, !Store) :-
     !Store ^ a := [active(CHR, I, 1) | !.Store ^ a].
 
+    % All the occurences have been tried so drop the constraint.
+    %
 :- pred drop_step(chr_program(T)::in, int::in, constraint_store(T)::in, constraint_store(T)::out) is semidet.
 
 drop_step(Program, J, !Store) :-
@@ -348,6 +436,7 @@ propagate_step(Program, ActiveConstraint, I, J, !Store) :-
     find_jth_occurence(Program, !.Store ^ b, J, keep, Occurence),
     execute_occurence(Program, ActiveConstraint, I, J, Occurence, !Store).
 
+    % The default step moves the occurence.
 :- pred default_step(chr_constraint(T)::in, int::in, int::in, constraint_store(T)::in, constraint_store(T)::out) is det.
 
 default_step(CHR, I, J, !Store) :-
@@ -369,7 +458,12 @@ find_jth_occurence(Program, Varset, J, Action, Occurence) :-
     constraint_store(T)::in, constraint_store(T)::out) is semidet.
 
 execute_occurence(_Program, ActiveConstraint, I, J, Occurence, !Store) :-
+
+        % CHR rule execution is a committed choice non determinstic act so use
+        % promise_equivalent_solutions to find the first solution which causes
+        % a rule to fire.
     promise_equivalent_solutions [!:Store] (
+
         some [!Subst, !S] (
                 % Match the active constraint in the CHR store
             match_ith_constraint(ActiveConstraint, I, !.Store ^ s, !:S),
@@ -380,6 +474,9 @@ execute_occurence(_Program, ActiveConstraint, I, J, Occurence, !Store) :-
             match_constraints(Occurence ^ occ_simp, Simp, !S, !Subst),
 
                 % Check that we haven't already executed this CHR rule
+                % XXX this step is not necessary if Prop is the empty list
+                % because the simplification will remove the atom and thus 
+                % the i'th rule can never be used in a matching again.
             PropHistoryId = propagation_history_id(Occurence ^ occ_rule, I, Prop, Simp),
             not set.member(PropHistoryId, !.Store ^ t),
 
@@ -413,25 +510,14 @@ execute_occurence(_Program, ActiveConstraint, I, J, Occurence, !Store) :-
 
             
                 % Store that the rule has fired in the propogation history.
+                % XXX this step is not necessary if Prop is the empty list.
+                % because the simplification will remove the atom and thus 
+                % the i'th rule can never be used in a matching again.
             set.insert(!.Store ^ t, PropHistoryId, NewT),
             !Store ^ t := NewT,
 
             !Store ^ a := ToAddToExecution ++ !.Store ^ a,
-            !Store ^ s := ToAddToStore ++ !.S,
-
-            A = !.Store ^ a,
-            S = !.Store ^ s,
-            B = !.Store ^ b,
-            trace [io(!IO)] (
-                output_execution_stack(B, A, !IO),
-                io.nl(!IO),
-                output_chr_store(B, S, !IO),
-                io.nl(!IO),
-                true
-            ),
-
-            true
-
+            !Store ^ s := ToAddToStore ++ !.S
         )
     ).
 
@@ -635,6 +721,7 @@ chr_goal_vars(chr(chr(_, Terms))) = set(list.condense(list.map(vars, Terms))).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
+% Some utility routines for debugging the CHR constraints.
 
 :- import_module chr_io.
 :- import_module io.
