@@ -203,13 +203,19 @@ solve(Rules, Varset0, Goal, BuiltinConstraints ++ CHRConstraints) :-
 
         % XXX it would be nice to do more simplification
     list.filter_map(to_constraint(Varset), varset.vars(Varset), BuiltinConstraints),
-    CHRConstraints = list.map(func(numbered(C, _)) = chr(C), ChrStore).
+    CHRConstraints = list.map(to_chr_constraint(Varset), ChrStore).
 
 :- pred to_constraint(varset(T)::in, var(T)::in, constraint(T)::out) is semidet.
 
 to_constraint(Varset, Var, builtin(unify(variable(Var, context_init), Term))) :-
     varset.search_var(Varset, Var, Term0),
     apply_rec_substitution(Term0, varset.get_bindings(Varset), Term).
+
+
+:- func to_chr_constraint(varset(T), chr_store_elem(T)) = constraint(T).
+
+to_chr_constraint(Varset, numbered(chr(Name, Args), _N)) =
+    chr(chr(Name, apply_rec_substitution_to_list(Args, varset.get_bindings(Varset)))).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
