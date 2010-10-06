@@ -131,7 +131,6 @@
 
 :- type chr_store_elem(T)
     --->    numbered(chr_constraint(T), int)
-    ;       normal(chr_constraint(T))
     .
 
 solve(Rules, Varset0, Goal, Constraints) :-
@@ -427,13 +426,10 @@ wakeup_policy(!Store) :-
 :- pred wakeup(varset(T)::in, chr_store_elem(T)::in, execution(T)::out) is semidet.
 
 wakeup(Varset, Elem, Wakeup) :-
-    ( Elem = numbered(ChrConstraint, N),
-        Wakeup = inactive(ChrConstraint, N)
-    ; Elem = normal(ChrConstraint),
-        Wakeup = constraint(chr(ChrConstraint))
-    ),
+    Elem = numbered(ChrConstraint, N),
     ChrConstraint = chr(_Name, Args),
-    not list.all_true(is_ground_in_bindings(get_bindings(Varset)), Args).
+    not list.all_true(is_ground_in_bindings(get_bindings(Varset)), Args),
+    Wakeup = inactive(ChrConstraint, N).
 
 :- pred is_ground_in_bindings(substitution(T)::in, term(T)::in) is semidet.
 
