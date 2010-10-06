@@ -101,8 +101,9 @@
                 occ_prop    :: chr_constraints(T),
                 occ_simp    :: chr_constraints(T),
                 occ_guard   :: builtin_constraints(T),
+                occ_body    :: constraints(T),
                 occ_varset  :: varset(T),
-                occ_rule    :: int
+                occ_rule    :: rule_id
             ).
 
 :- type keep_or_delete
@@ -110,7 +111,7 @@
     ;       delete
     .
 
-        
+:- type rule_id ---> rule_id(int).
 
 :- type constraint_store(T)
     --->    constraint_store(
@@ -133,12 +134,13 @@
     --->    numbered(chr_constraint(T), int)
     .
 
-solve(Rules, Varset0, Goal, Constraints) :-
+solve(Rules, Varset0, Goal, BuiltinConstraints ++ CHRConstraints) :-
     create_chr_program(Rules, Program),
-    solve_2(Program, Goal, constraint_store([], [], Varset0, set.init, 1), constraint_store(_, _, Varset, _, _)),
+    solve_2(Program, Goal, constraint_store([], [], Varset0, set.init, 1), constraint_store(_, ChrStore, Varset, _, _)),
 
         % XXX it would be nice to do more simplification
-    list.filter_map(to_constraint(Varset), varset.vars(Varset), Constraints).
+    list.filter_map(to_constraint(Varset), varset.vars(Varset), BuiltinConstraints),
+    CHRConstraints = list.map(func(numbered(C, _)) = chr(C), ChrStore).
 
 :- pred to_constraint(varset(T)::in, var(T)::in, constraint(T)::out) is semidet.
 
@@ -157,28 +159,29 @@ create_chr_program(Rules, program(Occurences, NumberOfHeadAtoms)) :-
 :- pred add_occurences(chr_rule(T)::in, int::in, int::out, int::in, int::out, occurences(T)::in, occurences(T)::out) is det.
 
 add_occurences(Rule, !NumHeadAtoms, RuleNumber, RuleNumber + 1, !Occurences) :-
-    list.foldl2(add_simp_occurence(RuleNumber, Rule), Rule ^ chr_simp, !NumHeadAtoms, !Occurences),
-    list.foldl2(add_prop_occurence(RuleNumber, Rule), Rule ^ chr_prop, !NumHeadAtoms, !Occurences).
+    RuleId = rule_id(RuleNumber),
+    list.foldl2(add_simp_occurence(RuleId, Rule), Rule ^ chr_simp, !NumHeadAtoms, !Occurences),
+    list.foldl2(add_prop_occurence(RuleId, Rule), Rule ^ chr_prop, !NumHeadAtoms, !Occurences).
 
-:- pred add_simp_occurence(int::in, chr_rule(T)::in, chr_constraint(T)::in, 
+:- pred add_simp_occurence(rule_id::in, chr_rule(T)::in, chr_constraint(T)::in, 
     int::in, int::out, occurences(T)::in, occurences(T)::out) is det.
 
-add_simp_occurence(RuleNumber, Rule, SimpConstraint, NumHeadAtoms, Index, !Occurences) :-
+add_simp_occurence(RuleId, Rule, SimpConstraint, NumHeadAtoms, Index, !Occurences) :-
     Index = NumHeadAtoms + 1,
     ( list.delete_first(Rule ^ chr_simp, SimpConstraint, Simp) ->
-        Occ = occ(SimpConstraint, delete, Index, Rule ^ chr_prop, Simp, Rule ^ chr_guard, Rule ^ chr_varset, RuleNumber),
+        Occ = occ(SimpConstraint, delete, Index, Rule ^ chr_prop, Simp, Rule ^ chr_guard, Rule ^ chr_body, Rule ^ chr_varset, RuleId),
         svmap.set(Index, Occ, !Occurences)
     ;
         error("add_simp_occurence: unable to find constraint")
     ).
 
-:- pred add_prop_occurence(int::in, chr_rule(T)::in, chr_constraint(T)::in, 
+:- pred add_prop_occurence(rule_id::in, chr_rule(T)::in, chr_constraint(T)::in, 
     int::in, int::out, occurences(T)::in, occurences(T)::out) is det.
 
-add_prop_occurence(RuleNumber, Rule, PropConstraint, NumHeadAtoms, Index, !Occurences) :-
+add_prop_occurence(RuleId, Rule, PropConstraint, NumHeadAtoms, Index, !Occurences) :-
     Index = NumHeadAtoms + 1,
     ( list.delete_first(Rule ^ chr_prop, PropConstraint, Prop) ->
-        Occ = occ(PropConstraint, keep, Index, Prop, Rule ^ chr_simp, Rule ^ chr_guard, Rule ^ chr_varset, RuleNumber),
+        Occ = occ(PropConstraint, keep, Index, Prop, Rule ^ chr_simp, Rule ^ chr_guard, Rule ^ chr_body, Rule ^ chr_varset, RuleId),
         svmap.set(Index, Occ, !Occurences)
     ;
         error("add_prop_occurence: unable to find constraint")
@@ -268,19 +271,19 @@ solve_chr(Program, !Store) :-
     ( head_execution_stack(Head, !Store) ->
         ( Head = constraint(builtin(Builtin)),
             solve_step(Builtin, !Store)
-        ; Head = constraint(chr(CHR)),
-            activate_step(CHR, !Store)
-        ; Head = inactive(CHR, I),
-            reactivate_step(CHR, I, !Store)
-        ; Head = active(CHR, I, J),
+        ; Head = constraint(chr(C)),
+            activate_step(C, !Store)
+        ; Head = inactive(Inactive, I),
+            reactivate_step(Inactive, I, !Store)
+        ; Head = active(Active, I, J),
             ( drop_step(Program, J, !Store) ->
                 true
-            ; simplify_step(Program, CHR, I, J, !Store) ->
+            ; simplify_step(Program, Active, I, J, !Store) ->
                 true
-            ; propagate_step(Program, CHR, I, J, !Store) ->
+            ; propagate_step(Program, Active, I, J, !Store) ->
                 true
             ;
-                default_step(CHR, I, J, !Store)
+                default_step(Active, I, J, !Store)
             )
         ),
         solve_chr(Program, !Store)
@@ -334,18 +337,16 @@ drop_step(Program, J, !Store) :-
 :- pred simplify_step(chr_program(T)::in,
     chr_constraint(T)::in, int::in, int::in, constraint_store(T)::in, constraint_store(T)::out) is semidet.
 
-simplify_step(Program, _Constraint, I, J, !Store) :-
-    Occurence = map.search(Program ^ occurences, J),
-    Occurence ^ occ_action = delete,
-    execute_occurence(Program, I, Occurence, !Store).
+simplify_step(Program, ActiveConstraint, I, J, !Store) :-
+    find_jth_occurence(Program, !.Store ^ b, J, delete, Occurence),
+    execute_occurence(Program, ActiveConstraint, I, J, Occurence, !Store).
 
 :- pred propagate_step(chr_program(T)::in,
     chr_constraint(T)::in, int::in, int::in, constraint_store(T)::in, constraint_store(T)::out) is semidet.
 
-propagate_step(Program, _Constraint, I, J, !Store) :-
-    Occurence = map.search(Program ^ occurences, J),
-    Occurence ^ occ_action = keep,
-    execute_occurence(Program, I, Occurence, !Store).
+propagate_step(Program, ActiveConstraint, I, J, !Store) :-
+    find_jth_occurence(Program, !.Store ^ b, J, keep, Occurence),
+    execute_occurence(Program, ActiveConstraint, I, J, Occurence, !Store).
 
 :- pred default_step(chr_constraint(T)::in, int::in, int::in, constraint_store(T)::in, constraint_store(T)::out) is det.
 
@@ -355,30 +356,147 @@ default_step(CHR, I, J, !Store) :-
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
-:- pred execute_occurence(chr_program(T)::in, int::in, occurence(T)::in,
+:- pred find_jth_occurence(chr_program(T)::in, varset(T)::in, int::in, keep_or_delete::in, occurence(T)::out) is semidet.
+
+find_jth_occurence(Program, Varset, J, Action, Occurence) :-
+    Occurence0 = map.search(Program ^ occurences, J),
+    Occurence0 ^ occ_action = Action,
+    rename_apart_occurence(Occurence0, Occurence, Varset, _).
+    
+%------------------------------------------------------------------------------%
+
+:- pred execute_occurence(chr_program(T)::in, chr_constraint(T)::in, int::in, int::in, occurence(T)::in,
     constraint_store(T)::in, constraint_store(T)::out) is semidet.
 
-execute_occurence(_Program, I, _Occurence, !Store) :-
+execute_occurence(_Program, ActiveConstraint, I, J, Occurence, !Store) :-
     promise_equivalent_solutions [!:Store] (
-        match_ith_constraint(I, !.Store ^ s, _IthConstraint, _S),
-            % XXX need to finish
-        !:Store = !.Store,
-        true
+        some [!Subst, !S] (
+                % Match the active constraint in the CHR store
+            match_ith_constraint(ActiveConstraint, I, !.Store ^ s, !:S),
+            match(Occurence ^ occ_active, ActiveConstraint, map.init, !:Subst),
+
+                % Match the rest of the head atoms in the CHR Store
+            match_constraints(Occurence ^ occ_prop, Prop, !S, !Subst),
+            match_constraints(Occurence ^ occ_simp, Simp, !S, !Subst),
+
+                % Check that we haven't already executed this CHR rule
+            PropHistoryId = propagation_history_id(Occurence ^ occ_rule, J, Prop, Simp),
+            not set.member(PropHistoryId, !.Store ^ t),
+
+                % Check that the guard evaluates to true
+            RenamedGuard = list.map(apply_rec_substitution_to_builtin(!.Subst), Occurence ^ occ_guard),
+            check_guard(!.Store ^ b, RenamedGuard),
+
+                % Rename the body of the rule and prepare it for addition back into the execution
+                % stack.
+            RenamedBody = list.map(apply_rec_substitution_to_constraint(!.Subst), Occurence ^ occ_body),
+            BodyExecution = list.map(func(C) = constraint(C), RenamedBody),
+
+            Action = Occurence ^ occ_action,
+            ( Action = keep,
+                    % Propagate step
+                    %
+                    % We keep the active constraint in the store and
+                    % leave it on the execution stack to see if any other rules
+                    % could fire with it.
+                ToAddToStore = [numbered(ActiveConstraint, I) | Prop],
+                ToAddToExecution = BodyExecution ++ [active(ActiveConstraint, I, J)]
+            ; Action = delete,
+                    % Simplify step
+                    %
+                    % We remove the active constraint from the store and
+                    % don't add it back onto the execution stack because
+                    % it's not in the store.
+                ToAddToStore = Prop,
+                ToAddToExecution = BodyExecution
+            ),
+
+            
+                % Store that the rule has fired in the propogation history.
+            set.insert(!.Store ^ t, PropHistoryId, NewT),
+            !Store ^ t := NewT,
+
+            !Store ^ a := ToAddToExecution ++ !.Store ^ a,
+            !Store ^ s := ToAddToStore ++ !.S
+        )
     ).
 
-:- type renaming(T) == map(var(T), var(T)).
+:- func propagation_history_id(rule_id, int, list(chr_store_elem(T)), list(chr_store_elem(T))) = list(int).
 
-:- pred match_ith_constraint(int::in, chr_store(T)::in, chr_store_elem(T)::out, chr_store(T)::out) is nondet.
+propagation_history_id(rule_id(R), J, Prop, Simp) = [R, J] ++ list.map(ToId, Prop) ++ list.map(ToId, Simp) :-
+    ToId = (func(numbered(_, N)) = N).
 
-match_ith_constraint(I, [C | Cs], IthConstraint, RemainingStore) :-
+%------------------------------------------------------------------------------%
+
+:- pred match_ith_constraint(chr_constraint(T)::in, int::in, chr_store(T)::in, chr_store(T)::out) is nondet.
+
+match_ith_constraint(Constraint, I, [C | Cs], RemainingStore) :-
     (
-        C = numbered(_, I),
-        IthConstraint = C,
+        C = numbered(Constraint, I),
         RemainingStore = Cs
     ;
-        match_ith_constraint(I, Cs, IthConstraint, RemainingStore0),
+        match_ith_constraint(Constraint, I, Cs, RemainingStore0),
         RemainingStore = [C | RemainingStore0]
     ).
+
+%------------------------------------------------------------------------------%
+
+:- pred match_constraints(list(chr_constraint(T))::in, list(chr_store_elem(T))::out,
+    chr_store(T)::in, chr_store(T)::out, substitution(T)::in, substitution(T)::out) is nondet.
+
+match_constraints([], [], !Store, !Subst).
+match_constraints([C | Cs], [E | Es], !Store, !Subst) :-
+    match_constraint(C, E, !Store, !Subst),
+    match_constraints(Cs, Es, !Store, !Subst).
+
+:- pred match_constraint(chr_constraint(T)::in, chr_store_elem(T)::out,
+    chr_store(T)::in, chr_store(T)::out, substitution(T)::in, substitution(T)::out) is nondet.
+
+match_constraint(HeadAtom, Elem, !Store, !Subst) :-
+    list.delete(!.Store, Elem, !:Store),
+    Elem = numbered(StoreAtom, _N),
+    match(HeadAtom, StoreAtom, !Subst).
+
+:- pred match(chr_constraint(T)::in, chr_constraint(T)::in, substitution(T)::in, substitution(T)::out) is semidet.
+
+match(chr(HeadName, HeadArgs), chr(StoreName, StoreArgs), !Subst) :-
+    HeadName = StoreName,
+    list.length(HeadArgs) : int = list.length(StoreArgs),
+    list.foldl_corresponding(match_head_to_store, HeadArgs, StoreArgs, !Subst).
+
+:- pred match_head_to_store(term(T)::in, term(T)::in, substitution(T)::in, substitution(T)::out) is det.
+
+match_head_to_store(HeadTerm, StoreTerm, !Subst) :-
+    ( HeadTerm = variable(HeadVar, _) ->
+        ( svmap.insert(HeadVar, StoreTerm, !Subst) ->
+            true
+        ;
+            error("match_head_to_store: rule normalization implies that the head variable is unique")
+        )
+    ;
+        error("match_head_to_store: rule normalization implies that the head term is always a variable")
+    ).
+
+%------------------------------------------------------------------------------%
+
+:- pred check_guard(varset(T)::in, builtin_constraints(T)::in) is semidet.
+
+check_guard(_Varset, []).
+check_guard(Varset, [C | Cs]) :-
+    check_guard_2(Varset, C),
+    check_guard(Varset, Cs).
+
+:- pred check_guard_2(varset(T)::in, builtin_constraint(T)::in) is semidet.
+
+check_guard_2(_, true) :-
+    true.
+check_guard_2(_, fail) :-
+    fail.
+check_guard_2(Varset, unify(TermA0, TermB0)) :-
+    apply_rec_substitution(TermA0, varset.get_bindings(Varset), TermA),
+    apply_rec_substitution(TermB0, varset.get_bindings(Varset), TermB),
+        % XXX pretty sure that this is wrong!
+    TermA = TermB.
 
 %------------------------------------------------------------------------------%
 
@@ -386,28 +504,80 @@ match_ith_constraint(I, [C | Cs], IthConstraint, RemainingStore) :-
 
 rename_apart_occurence(!Occurence, !Varset) :-
     varset.merge_subst(!.Varset, !.Occurence ^ occ_varset, !:Varset, Subst),
-    apply_rec_substitution_to_occurence(Subst, !Occurence).
+    apply_substitution_to_occurence(Subst, !Occurence).
+
+%------------------------------------------------------------------------------%
+
+:- pred apply_substitution_to_occurence(substitution(T)::in, occurence(T)::in, occurence(T)::out) is det.
+
+apply_substitution_to_occurence(Subst, Occurence, RenamedOccurence) :-
+    apply_ho_substitution_to_occurence(apply_substitution, Subst, Occurence, RenamedOccurence).
+
+:- func apply_substitution_to_constraint(substitution(T), constraint(T)) = constraint(T).
+
+apply_substitution_to_constraint(Subst, C) =
+    apply_ho_substitution_to_constraint(apply_substitution, Subst, C).
+
+:- func apply_substitution_to_chr(substitution(T), chr_constraint(T)) = chr_constraint(T).
+
+apply_substitution_to_chr(Subst, C) =
+    apply_ho_substitution_to_chr(apply_substitution, Subst, C).
+
+:- func apply_substitution_to_builtin(substitution(T), builtin_constraint(T)) = builtin_constraint(T).
+
+apply_substitution_to_builtin(Subst, C) =
+    apply_ho_substitution_to_builtin(apply_substitution, Subst, C).
+
+%------------------------------------------------------------------------------%
 
 :- pred apply_rec_substitution_to_occurence(substitution(T)::in, occurence(T)::in, occurence(T)::out) is det.
 
 apply_rec_substitution_to_occurence(Subst, Occurence, RenamedOccurence) :-
-    RenamedOccurence = (((Occurence
-        ^ occ_active := apply_rec_substitution_to_chr(Subst, Occurence ^ occ_active))
-        ^ occ_prop := list.map(apply_rec_substitution_to_chr(Subst), Occurence ^ occ_prop))
-        ^ occ_simp := list.map(apply_rec_substitution_to_chr(Subst), Occurence ^ occ_simp))
-        ^ occ_guard := list.map(apply_rec_substitution_to_builtin(Subst), Occurence ^ occ_guard).
+    apply_ho_substitution_to_occurence(apply_rec_substitution, Subst, Occurence, RenamedOccurence).
+
+:- func apply_rec_substitution_to_constraint(substitution(T), constraint(T)) = constraint(T).
+
+apply_rec_substitution_to_constraint(Subst, C) =
+    apply_ho_substitution_to_constraint(apply_rec_substitution, Subst, C).
 
 :- func apply_rec_substitution_to_chr(substitution(T), chr_constraint(T)) = chr_constraint(T).
 
-apply_rec_substitution_to_chr(Subst, chr(Name, Args)) = chr(Name, apply_rec_substitution_to_list(Args, Subst)).
+apply_rec_substitution_to_chr(Subst, C) =
+    apply_ho_substitution_to_chr(apply_rec_substitution, Subst, C).
 
 :- func apply_rec_substitution_to_builtin(substitution(T), builtin_constraint(T)) = builtin_constraint(T).
 
-apply_rec_substitution_to_builtin(_, true) = true.
-apply_rec_substitution_to_builtin(_, fail) = fail.
-apply_rec_substitution_to_builtin(Subst, unify(TermA, TermB)) =
-    unify(apply_rec_substitution(TermA, Subst), apply_rec_substitution(TermB, Subst)).
+apply_rec_substitution_to_builtin(Subst, C) =
+    apply_ho_substitution_to_builtin(apply_rec_substitution, Subst, C).
 
+%------------------------------------------------------------------------------%
+
+:- type subst_func(T) == (func(term(T), substitution(T)) = term(T)).
+
+:- pred apply_ho_substitution_to_occurence(subst_func(T)::in, substitution(T)::in, occurence(T)::in, occurence(T)::out) is det.
+
+apply_ho_substitution_to_occurence(F, Subst, Occurence, RenamedOccurence) :-
+    RenamedOccurence = (((Occurence
+        ^ occ_active := apply_ho_substitution_to_chr(F, Subst, Occurence ^ occ_active))
+        ^ occ_prop := list.map(apply_ho_substitution_to_chr(F, Subst), Occurence ^ occ_prop))
+        ^ occ_simp := list.map(apply_ho_substitution_to_chr(F, Subst), Occurence ^ occ_simp))
+        ^ occ_guard := list.map(apply_ho_substitution_to_builtin(F, Subst), Occurence ^ occ_guard).
+
+:- func apply_ho_substitution_to_constraint(subst_func(T), substitution(T), constraint(T)) = constraint(T).
+
+apply_ho_substitution_to_constraint(F, Subst, chr(Chr)) = chr(apply_ho_substitution_to_chr(F, Subst, Chr)).
+apply_ho_substitution_to_constraint(F, Subst, builtin(B)) = builtin(apply_ho_substitution_to_builtin(F, Subst, B)).
+
+:- func apply_ho_substitution_to_chr(subst_func(T), substitution(T), chr_constraint(T)) = chr_constraint(T).
+
+apply_ho_substitution_to_chr(F, Subst, chr(Name, Args)) = chr(Name, list.map(func(Arg) = F(Arg, Subst), Args)).
+
+:- func apply_ho_substitution_to_builtin(subst_func(T), substitution(T), builtin_constraint(T)) = builtin_constraint(T).
+
+apply_ho_substitution_to_builtin(_, _, true) = true.
+apply_ho_substitution_to_builtin(_, _, fail) = fail.
+apply_ho_substitution_to_builtin(F, Subst, unify(TermA, TermB)) =
+    unify(F(TermA, Subst), F(TermB, Subst)).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
