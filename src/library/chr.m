@@ -380,7 +380,7 @@ execute_occurence(_Program, ActiveConstraint, I, J, Occurence, !Store) :-
             match_constraints(Occurence ^ occ_simp, Simp, !S, !Subst),
 
                 % Check that we haven't already executed this CHR rule
-            PropHistoryId = propagation_history_id(Occurence ^ occ_rule, J, Prop, Simp),
+            PropHistoryId = propagation_history_id(Occurence ^ occ_rule, I, Prop, Simp),
             not set.member(PropHistoryId, !.Store ^ t),
 
                 % Check that the guard evaluates to true
@@ -423,7 +423,7 @@ execute_occurence(_Program, ActiveConstraint, I, J, Occurence, !Store) :-
 
 :- func propagation_history_id(rule_id, int, list(chr_store_elem(T)), list(chr_store_elem(T))) = list(int).
 
-propagation_history_id(rule_id(R), J, Prop, Simp) = [R, J] ++ list.map(ToId, Prop) ++ list.map(ToId, Simp) :-
+propagation_history_id(rule_id(R), I, Prop, Simp) = [R, I] ++ list.map(ToId, Prop) ++ list.map(ToId, Simp) :-
     ToId = (func(numbered(_, N)) = N).
 
 %------------------------------------------------------------------------------%
