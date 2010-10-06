@@ -84,15 +84,15 @@
 
 :- type type_term == term(tvar_type).
 
-:- type constraint
-    --->    conj(list(constraint))
-    ;       disj(list(constraint))
+:- type tconstraint
+    --->    conj(list(tconstraint))
+    ;       disj(list(tconstraint))
     ;       unify(tvar, type_term)
     ;       tc(type_term)
     .
 
-:- type constraint_store 
-    --->    constraint_store(
+:- type tconstraint_store 
+    --->    tconstraint_store(
                 varset(tvar_type),
 
                     % The list of typeclass constraints
@@ -152,7 +152,7 @@ typecheck_pred(HLDS, !Pred, Errors) :-
             TVarset0 = !.TCI ^ tvarset,
             !TCI ^ tvarset := varset.ensure_unique_names(varset.vars(TVarset0), "X", TVarset0),
 
-            solutions(solve(Constraint, constraint_store(!.TCI ^ tvarset, [])), Solns),
+            solutions(solve(Constraint, tconstraint_store(!.TCI ^ tvarset, [])), Solns),
             trace [io(!IO)] (
                 output_constraint(!.TCI, Constraint, !IO),
                 list.foldl(output_constraint_store(!.TCI ^ prog_var_to_tvar, !.Pred ^ pred_varset), Solns, !IO),
@@ -162,9 +162,9 @@ typecheck_pred(HLDS, !Pred, Errors) :-
         Errors = !.TCI ^ errors
     ).
 
-:- pred output_constraint_store(prog_var_to_tvar::in, prog_varset::in, constraint_store::in, io::di, io::uo) is det.
+:- pred output_constraint_store(prog_var_to_tvar::in, prog_varset::in, tconstraint_store::in, io::di, io::uo) is det.
 
-output_constraint_store(Map, ProgVarset, constraint_store(TVarset, Typeclasses), !IO) :-
+output_constraint_store(Map, ProgVarset, tconstraint_store(TVarset, Typeclasses), !IO) :-
     io.write_string("\n*** Solution ***\n", !IO),
     list.foldl(output_var(no, Map, ProgVarset, TVarset), varset.vars(TVarset), !IO),
     list.foldl(output_typeclass(TVarset), Typeclasses, !IO).
@@ -212,7 +212,7 @@ init_typecheck_env(HLDS) = typecheck_env(HLDS ^ cons_table, HLDS ^ predicate_tab
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
-:- pred goal_to_constraint(typecheck_env::in, hlds_goal::in, constraint::out,
+:- pred goal_to_constraint(typecheck_env::in, hlds_goal::in, tconstraint::out,
     typecheck_info::in, typecheck_info::out) is det.
 
 goal_to_constraint(Env, unify(VarA, RHS), Constraint, !TCI) :-
@@ -278,7 +278,7 @@ goal_to_constraint(_Env, method_call(_Var, _Name, _Args, _MaybeRet), disj([]), !
     % XXX FIXME
     error("XXX: method_call").
 
-:- func maybe_to_disj(list(constraint)) = constraint.
+:- func maybe_to_disj(list(tconstraint)) = tconstraint.
 
 maybe_to_disj(Constraints) =
     ( Constraints = [Constraint] ->
@@ -287,7 +287,7 @@ maybe_to_disj(Constraints) =
         disj(Constraints)
     ).
 
-:- func maybe_to_conj(list(constraint)) = constraint.
+:- func maybe_to_conj(list(tconstraint)) = tconstraint.
 
 maybe_to_conj(Constraints) =
     ( Constraints = [Constraint] ->
@@ -298,7 +298,7 @@ maybe_to_conj(Constraints) =
 
 %------------------------------------------------------------------------------%
 
-:- pred functor_unif_constraint(tvar::in, list(tvar)::in, hlds_cons_defn::in, constraint::out,
+:- pred functor_unif_constraint(tvar::in, list(tvar)::in, hlds_cons_defn::in, tconstraint::out,
     typecheck_info::in, typecheck_info::out) is det.
 
 functor_unif_constraint(LHSTVar, ArgTVars, ConsDefn, Constraint, !TCI) :-
@@ -319,7 +319,7 @@ construct_type(type_ctor(Name, _), Args) = defined_type(Name, Args).
 
 %------------------------------------------------------------------------------%
 
-:- pred ho_pred_unif_constraint(predicate_table::in, tvar::in, list(tvar)::in, pred_id::in, constraint::out,
+:- pred ho_pred_unif_constraint(predicate_table::in, tvar::in, list(tvar)::in, pred_id::in, tconstraint::out,
     typecheck_info::in, typecheck_info::out) is semidet.
 
 ho_pred_unif_constraint(PredTable, LHSTVar, ArgTVars, PredId, Constraint, !TCI) :-
@@ -338,7 +338,7 @@ ho_pred_unif_constraint(PredTable, LHSTVar, ArgTVars, PredId, Constraint, !TCI) 
         fail
     ).
 
-:- func prog_constraint_constraint(prog_constraint) = constraint.
+:- func prog_constraint_constraint(prog_constraint) = tconstraint.
 
 prog_constraint_constraint(prog_constraint(SymName, Args)) =
     tc(functor(sym_name_to_string(SymName), list.map(prog_type_to_type_term, Args))).
@@ -346,7 +346,7 @@ prog_constraint_constraint(prog_constraint(SymName, Args)) =
 %------------------------------------------------------------------------------%
 
 :- pred pred_call_constraint(predicate_table::in, list(tvar)::in, pred_id::in,
-    constraint::out, typecheck_info::in, typecheck_info::out) is det.
+    tconstraint::out, typecheck_info::in, typecheck_info::out) is det.
 
 pred_call_constraint(PredTable, ArgTVars, PredId, Constraint, !TCI) :-
     Pred = lookup_pred_id(PredTable, PredId),
@@ -365,7 +365,7 @@ pred_call_constraint(PredTable, ArgTVars, PredId, Constraint, !TCI) :-
     Constraints = list.map_corresponding(unify_constraint, ArgTVars, ArgTypes),
     Constraint = maybe_to_conj(Constraints ++ TypeclassConstraints).
 
-:- func unify_constraint(tvar, prog_type) = constraint.
+:- func unify_constraint(tvar, prog_type) = tconstraint.
 
 unify_constraint(TVar, Type) = unify(TVar, prog_type_to_type_term(Type)).
 
@@ -478,7 +478,7 @@ type_term_to_prog_type(term.functor(atom(Atom), Args, _), Type) :-
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
-:- pred solve(constraint::in, constraint_store::in, constraint_store::out) is nondet.
+:- pred solve(tconstraint::in, tconstraint_store::in, tconstraint_store::out) is nondet.
 
 solve(conj([]), !Store).
 solve(conj([C | Cs]), !Store) :-
@@ -499,16 +499,16 @@ solve(tc(Term), !Store) :-
 %------------------------------------------------------------------------------%
 
 
-:- pred add_unify_constraint(type_term::in, type_term::in, constraint_store::in, constraint_store::out) is semidet.
+:- pred add_unify_constraint(type_term::in, type_term::in, tconstraint_store::in, tconstraint_store::out) is semidet.
 
-add_unify_constraint(TermA, TermB, constraint_store(!.Varset, !.Typeclasses), constraint_store(!:Varset, !:Typeclasses)) :-
+add_unify_constraint(TermA, TermB, tconstraint_store(!.Varset, !.Typeclasses), tconstraint_store(!:Varset, !:Typeclasses)) :-
     unify_term(TermA, TermB, varset.get_bindings(!.Varset), Bindings),
     varset.set_bindings(!.Varset, Bindings, !:Varset),
     check_typeclass_constraints(!.Varset, !Typeclasses).
 
-:- pred add_typeclass_constraint(type_term::in, constraint_store::in, constraint_store::out) is det.
+:- pred add_typeclass_constraint(type_term::in, tconstraint_store::in, tconstraint_store::out) is det.
 
-add_typeclass_constraint(Term, constraint_store(!.Varset, !.Typeclasses), constraint_store(!:Varset, !:Typeclasses)) :-
+add_typeclass_constraint(Term, tconstraint_store(!.Varset, !.Typeclasses), tconstraint_store(!:Varset, !:Typeclasses)) :-
     list.cons(Term, !Typeclasses),
     check_typeclass_constraints(!.Varset, !Typeclasses).
 
@@ -536,18 +536,18 @@ apply_rec_substitution(Term0, Varset, Term) :-
 
     % Sort the constraints so that we restrict the domain as much as possible
     % before entering the disjunctions.
-:- func sort_constraints(constraint) = constraint.
+:- func sort_constraints(tconstraint) = tconstraint.
 
 sort_constraints(C) = sort_constraints_2(flatten(C)).
 
-:- func sort_constraints_2(constraint) = constraint.
+:- func sort_constraints_2(tconstraint) = tconstraint.
 
 sort_constraints_2(conj(Cs)) = conj(list.sort(compare_constraint, list.map(sort_constraints_2, Cs))).
 sort_constraints_2(disj(Cs)) = disj(list.sort(compare_constraint, list.map(sort_constraints_2, Cs))).
 sort_constraints_2(C @ unify(_, _)) = C.
 sort_constraints_2(C @ tc(_)) = C.
     
-:- func compare_constraint(constraint, constraint) = comparison_result.
+:- func compare_constraint(tconstraint, tconstraint) = comparison_result.
 
 compare_constraint(conj(_), conj(_)) = (=).
 compare_constraint(conj(_), disj(_)) = (<).
@@ -578,14 +578,14 @@ number_type_vars(functor(_, Args, _)) = list.foldl(func(A,B) = A + B, list.map(n
 %------------------------------------------------------------------------------%
 
     % Take a constraint and flatten all the disjunctions and conjunctions.
-:- func flatten(constraint) = constraint.
+:- func flatten(tconstraint) = tconstraint.
 
 flatten(conj(Gs)) = conj(list.reverse(list.foldl(flatten_conj, Gs, []))).
 flatten(disj(Gs)) = disj(list.reverse(list.foldl(flatten_disj, Gs, []))).
 flatten(C @ unify(_, _)) = C.
 flatten(C @ tc(_)) = C.
 
-:- func flatten_conj(constraint, list(constraint)) = list(constraint).
+:- func flatten_conj(tconstraint, list(tconstraint)) = list(tconstraint).
 
 flatten_conj(C0, !.Gs) = !:Gs :-
     C = flatten(C0),
@@ -595,7 +595,7 @@ flatten_conj(C0, !.Gs) = !:Gs :-
         list.append([C], !Gs)
     ).
 
-:- func flatten_disj(constraint, list(constraint)) = list(constraint).
+:- func flatten_disj(tconstraint, list(tconstraint)) = list(tconstraint).
 
 flatten_disj(C0, !.Gs) = !:Gs :-
     C = flatten(C0),
@@ -608,7 +608,7 @@ flatten_disj(C0, !.Gs) = !:Gs :-
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
-:- pred output_constraint(typecheck_info::in, constraint::in, io::di, io::uo) is det.
+:- pred output_constraint(typecheck_info::in, tconstraint::in, io::di, io::uo) is det.
 
 output_constraint(Info, Constraint, !IO) :-
     io.write_string("*** Constraint ***", !IO),
@@ -617,7 +617,7 @@ output_constraint(Info, Constraint, !IO) :-
 
 %------------------------------------------------------------------------------%
 
-:- pred output_constraint_2(int::in, typecheck_info::in, constraint::in, io::di, io::uo) is det.
+:- pred output_constraint_2(int::in, typecheck_info::in, tconstraint::in, io::di, io::uo) is det.
 
 output_constraint_2(Indent, Info, conj(Cs), !IO) :-
     ( Cs = [],
@@ -655,7 +655,7 @@ output_constraint_2(Indent, Info, tc(Term), !IO) :-
     ;       disj_sep
     .
 
-:- pred output_constraint_list(int::in, typecheck_info::in, sep::in, list(constraint)::in, io::di, io::uo) is det.
+:- pred output_constraint_list(int::in, typecheck_info::in, sep::in, list(tconstraint)::in, io::di, io::uo) is det.
 
 output_constraint_list(_Indent, _Info, _Sep, [], !IO).
 output_constraint_list(Indent, Info, Sep, [C | Cs], !IO) :-
