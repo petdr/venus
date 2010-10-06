@@ -417,7 +417,21 @@ execute_occurence(_Program, ActiveConstraint, I, J, Occurence, !Store) :-
             !Store ^ t := NewT,
 
             !Store ^ a := ToAddToExecution ++ !.Store ^ a,
-            !Store ^ s := ToAddToStore ++ !.S
+            !Store ^ s := ToAddToStore ++ !.S,
+
+            A = !.Store ^ a,
+            S = !.Store ^ s,
+            B = !.Store ^ b,
+            trace [io(!IO)] (
+                output_execution_stack(B, A, !IO),
+                io.nl(!IO),
+                output_chr_store(B, S, !IO),
+                io.nl(!IO),
+                true
+            ),
+
+            true
+
         )
     ).
 
@@ -617,6 +631,49 @@ chr_goal_vars(builtin(unify(TermA, TermB))) = set(vars(TermA)) `set.union` set(v
 chr_goal_vars(builtin(true)) = set.init.
 chr_goal_vars(builtin(fail)) = set.init.
 chr_goal_vars(chr(chr(_, Terms))) = set(list.condense(list.map(vars, Terms))).
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
+:- import_module chr_io.
+:- import_module io.
+
+:- pred output_execution_stack(varset(T)::in, list(execution(T))::in, io::di, io::uo) is det.
+
+output_execution_stack(Varset, List, !IO) :-
+    io.write_string("[", !IO),
+    io.write_list(List, ", ", output_execution(Varset), !IO),
+    io.write_string("]", !IO).
+
+:- pred output_execution(varset(T)::in, execution(T)::in, io::di, io::uo) is det.
+
+output_execution(Varset, constraint(C), !IO) :-
+    output_constraint(Varset, C, !IO).
+output_execution(Varset, inactive(C, I), !IO) :-
+    output_chr_constraint(Varset, C, !IO),
+    io.write_string("#", !IO),
+    io.write_int(I, !IO).
+output_execution(Varset, active(C, I, J), !IO) :-
+    output_execution(Varset, inactive(C, I), !IO),
+    io.write_string(":", !IO),
+    io.write_int(J, !IO).
+
+:- pred output_chr_store(varset(T)::in, chr_store(T)::in, io::di, io::uo) is det.
+
+output_chr_store(Varset, List, !IO) :-
+    io.write_string("[", !IO),
+    io.write_list(List, ", ", output_chr_store_elem(Varset), !IO),
+    io.write_string("]", !IO).
+
+:- pred output_chr_store_elem(varset(T)::in, chr_store_elem(T)::in, io::di, io::uo) is det.
+
+output_chr_store_elem(Varset, numbered(C, I), !IO) :-
+    output_execution(Varset, inactive(C, I), !IO).
+
+:- pred output_chr_constraint(varset(T)::in, chr_constraint(T)::in, io::di, io::uo) is det.
+
+output_chr_constraint(Varset, C, !IO) :-
+    output_constraint(Varset, chr(C), !IO).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
