@@ -71,6 +71,8 @@ make_hlds(ModuleName, Items, !:HLDS, !IO) :-
 
 process_decls(_Info, clause(_), !HLDS).
 process_decls(_Info, instance_defn(_), !HLDS).
+process_decls(_Info, object_defn(_), !HLDS) :-
+    error("XXX OBJECT").
 process_decls(Info, typeclass_defn(T), !HLDS) :-
     T = typeclass_defn(Name, Params, _TVarset, Methods, _Context),
     Constraint = prog_constraint(Name, Params),
@@ -180,6 +182,7 @@ process_data_constructor(Info, TypeCtor, Params, TVarset, data_constructor(Name,
 
 process_clause_items(_Info, instance_defn(_), !HLDS).
 process_clause_items(_Info, pred_decl(_), !HLDS).
+process_clause_items(_Info, object_defn(_), !HLDS).
 process_clause_items(_Info, type_defn(_), !HLDS).
 process_clause_items(_Info, typeclass_defn(_), !HLDS).
 process_clause_items(Info, clause(Clause), !HLDS) :-

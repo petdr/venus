@@ -248,7 +248,7 @@ goal_to_constraint(Env, conj(Goals), conj(Constraints), !TCI) :-
 goal_to_constraint(Env, disj(Goals), conj(Constraints), !TCI) :-
     list.map_foldl(goal_to_constraint(Env), Goals, Constraints, !TCI).
 goal_to_constraint(_Env, method_call(_Var, _Name, _Args, _MaybeRet), disj([]), !TCI) :-
-    % XXX FIXME
+    % XXX FIXME object
     error("XXX: method_call").
 
 :- func maybe_to_disj(list(tchr_goal)) = tchr_goal.

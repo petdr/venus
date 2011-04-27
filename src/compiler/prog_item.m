@@ -15,6 +15,7 @@
 :- type item
     --->    clause(item_clause)
     ;       instance_defn(item_instance_defn)
+    ;       object_defn(item_object_defn)
     ;       pred_decl(item_pred_decl)
     ;       type_defn(item_type_defn)
     ;       typeclass_defn(item_typeclass_defn)
@@ -77,6 +78,23 @@
                 typeclass_context   :: term.context
             ).
 
+:- type item_object_defn
+    --->    object_defn(
+                object_name         :: sym_name,
+                object_args         :: list(type_param),
+                object_tvarset      :: tvarset,
+                object_extends      :: sym_name,
+                object_properties   :: list(object_property),
+                object_methods      :: list(item_clause),
+                object_context      :: term.context
+            ).
+
+:- type object_property
+    --->    object_property(
+                object_property_name    :: string,
+                object_property_type    :: prog_type
+            ).
+
 :- type class_method
     --->    class_method(
                 method_name         :: sym_name,
@@ -100,9 +118,9 @@
 
 :- type object_method
     --->    object_method(
-                object_var      :: prog_var,
-                object_method   :: sym_name,
-                object_args     :: list(prog_term)
+                object_method_var   :: prog_var,
+                object_method_name  :: sym_name,
+                object_method_args  :: list(prog_term)
             ).
         
 :- implementation.

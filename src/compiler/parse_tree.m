@@ -145,6 +145,11 @@ parse_attributed_decl(Varset, Functor, ArgTerms, Attrs, Context, Result) :-
         parse_instance_decl(Varset, InstanceTerm, Context, Result0),
         check_no_attributes(Attrs, Context, Result0, Result)
     ;
+        Functor = "object",
+        ArgTerms = [ObjectTerm],
+        parse_object(Varset, ObjectTerm, Context, Result0),
+        check_no_attributes(Attrs, Context, Result0, Result)
+    ;
         Functor = "pred",
         ArgTerms = [PredTerm],
         parse_pred_decl(Varset, PredTerm, Attrs, Context, Result)
@@ -309,6 +314,33 @@ parse_data_constructor(Term, Result) :-
         )
     ;
         Result = error([simple_error_msg(get_term_context(Term), "Expected a data constructor")])
+    ).
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
+:- pred parse_object(varset::in, term::in, term.context::in, parse_result(item)::out) is det.
+
+parse_object(Varset, Term, ObjectContext, Result) :-
+    ( Term = term.functor(atom("where"), [NameTerm, _ListTerm], _Context) ->
+        ( parse_sym_name(NameTerm, SymName, TermArgs) ->
+            (
+                var_list(TermArgs, TypeVars)
+            ->
+                TVarset = coerce(Varset),
+                TypeParams = list.map(func(V) = type_variable(V), TypeVars),
+                Extends = sym_name(["System"], "Object"),
+                ObjectDefn = object_defn(SymName, TypeParams, TVarset, Extends, [], [], ObjectContext),
+                Result = ok(object_defn(ObjectDefn))
+            ;
+                Msg = "Expected a list of type variables in the object name",
+                Result = error([simple_error_msg(get_term_context(NameTerm), Msg)])
+            )
+        ;
+            Result = error([simple_error_msg(ObjectContext, "Unable to parse the object")])
+        )
+    ;
+        Result = error([simple_error_msg(ObjectContext, "Unable to parse the object")])
     ).
 
 %------------------------------------------------------------------------------%
