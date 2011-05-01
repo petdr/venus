@@ -84,7 +84,13 @@
 :- type prog_constraint
     --->    prog_constraint(
                 constraint_name     :: sym_name,
-                constraing_params   :: list(type_param)
+                constraint_params   :: list(type_param)
+            ).
+
+:- type prog_object
+    --->    prog_object(
+                object_name         :: sym_name,
+                object_params       :: list(type_param)
             ).
 
 %------------------------------------------------------------------------------%

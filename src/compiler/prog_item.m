@@ -84,6 +84,7 @@
                 object_args         :: list(type_param),
                 object_tvarset      :: tvarset,
                 object_extends      :: sym_name,
+                object_implements   :: list(sym_name),
                 object_properties   :: list(object_property),
                 object_methods      :: list(item_clause),
                 object_context      :: term.context

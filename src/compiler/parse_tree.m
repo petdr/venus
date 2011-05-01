@@ -33,6 +33,8 @@
 
 :- import_module prog_data.
 
+:- import_module venus_ops.
+
 :- import_module pair.
 :- import_module parser.
 :- import_module require.
@@ -41,7 +43,7 @@
 :- import_module varset.
 
 parse_items(FileName, Items, Errors, !IO) :-
-    parser.read_term(ReadTermResult, !IO),
+    parser.read_term_with_op_table(init_venus_op_table, ReadTermResult, !IO),
     ( ReadTermResult = term(Varset, Term),
         parse_item(Varset, Term, ParseResult),
         ( ParseResult = ok(Item),
@@ -324,18 +326,18 @@ parse_data_constructor(Term, Result) :-
 parse_object(Varset, Term, ObjectContext, Result) :-
     ( Term = term.functor(atom("where"), [NameTerm, _ListTerm], _Context) ->
         ( parse_sym_name(NameTerm, SymName, TermArgs) ->
+            TVarset = coerce(Varset),
+            Extends = sym_name(["System"], "Object"),
+            Implments = [],
             (
                 var_list(TermArgs, TypeVars)
             ->
-                TVarset = coerce(Varset),
-                TypeParams = list.map(func(V) = type_variable(V), TypeVars),
-                Extends = sym_name(["System"], "Object"),
-                ObjectDefn = object_defn(SymName, TypeParams, TVarset, Extends, [], [], ObjectContext),
-                Result = ok(object_defn(ObjectDefn))
+                TypeParams = list.map(func(V) = type_variable(V), TypeVars)
             ;
-                Msg = "Expected a list of type variables in the object name",
-                Result = error([simple_error_msg(get_term_context(NameTerm), Msg)])
-            )
+                TypeParams = []
+            ),
+            ObjectDefn = object_defn(SymName, TypeParams, TVarset, Extends, Implments, [], [], ObjectContext),
+            Result = ok(object_defn(ObjectDefn))
         ;
             Result = error([simple_error_msg(ObjectContext, "Unable to parse the object")])
         )
@@ -343,7 +345,52 @@ parse_object(Varset, Term, ObjectContext, Result) :-
         Result = error([simple_error_msg(ObjectContext, "Unable to parse the object")])
     ).
 
-%------------------------------------------------------------------------------%
+:- type o
+    --->    o(
+                sym_name,
+                list(type_param),
+                prog_object,
+                list(prog_object)
+            ).
+
+:- pred parse_object_name(term::in, term.context::in, parse_result(o)::out) is det.
+
+parse_object_name(Term, NameContext, Result) :-
+    ( Term = term.functor(atom("extends"), [TermA, TermB], _Context) ->
+    ; Term = term.functor(atom("implements"), [TermA, TermB], _Context) ->
+    ;
+        ( parse_sym_name(Term, SymName, TermArgs) ->
+            Extends = sym_name(["System"], "Object"),
+            Implments = [],
+            (
+                var_list(TermArgs, TypeVars)
+            ->
+                TypeParams = list.map(func(V) = type_variable(V), TypeVars)
+            ;
+                TypeParams = []
+            ),
+            Result = ok(o(SymName, TypeParams, Extends, Implements))
+        ;
+            Result = error([simple_error_msg(NameContext, "Unable to parse the object name")])
+        )
+    ).
+
+:- pred parse_object_name(prog_object::in, list(prog_object)::in, term::in, term.context::in, parse_result(o)::out) is det.
+
+parse_object_name(Extends, Implments, Term, Context, Result) :-
+    ( parse_sym_name(Term, SymName, TermArgs) ->
+        (
+            var_list(TermArgs, TypeVars)
+        ->
+            TypeParams = list.map(func(V) = type_variable(V), TypeVars)
+        ;
+            Result = error([simple_error_msg(Context, "Expect only type variables for the object name")])
+        ),
+        Result = ok(o(SymName, TypeParams, Extends, Implements))
+    ;
+        Result = error([simple_error_msg(Context, "Unable to parse the object name")])
+    ).
+
 %------------------------------------------------------------------------------%
 
 :- pred parse_typeclass(varset::in, term::in, term.context::in, parse_result(item)::out) is det.
