@@ -79,6 +79,7 @@
     ;       equals(term(T), term(T))  % == in prolog
     ;       true
     ;       fail
+    ;       not(builtin_constraint(T))
     .
 
 %------------------------------------------------------------------------------%
@@ -387,14 +388,16 @@ head_execution_stack(Head, !Store) :-
     %
 :- pred solve_step(builtin_constraint(T)::in, constraint_store(T)::in, constraint_store(T)::out) is semidet.
 
+solve_step(not(B), !Store) :-
+    not solve_step(B, !Store).
 solve_step(true, !Store).
 solve_step(fail, !Store) :-
     fail.
 solve_step(equals(TermA0, TermB0), !Store) :-
-        Bindings = varset.get_bindings(!.Store ^ b),
-        apply_rec_substitution(TermA0, Bindings, TermA),
-        apply_rec_substitution(TermB0, Bindings, TermB),
-        terms_equal(TermA, TermB).
+    Bindings = varset.get_bindings(!.Store ^ b),
+    apply_rec_substitution(TermA0, Bindings, TermA),
+    apply_rec_substitution(TermB0, Bindings, TermB),
+    terms_equal(TermA, TermB).
 solve_step(unify(TermA, TermB), !Store) :-
     some [!Varset] (
         !:Varset = !.Store ^ b,
@@ -603,6 +606,8 @@ check_guard_2([C | Cs], !Varset) :-
 
 :- pred check_guard_3(builtin_constraint(T)::in, varset(T)::in, varset(T)::out) is semidet.
 
+check_guard_3(not(B), !Varset) :-
+    not check_guard_3(B, !Varset).
 check_guard_3(true, !Varset) :-
     true.
 check_guard_3(fail, !Varset) :-
@@ -710,6 +715,7 @@ apply_ho_substitution_to_chr(F, Subst, chr(Name, Args)) = chr(Name, list.map(fun
 
 apply_ho_substitution_to_builtin(_, _, true) = true.
 apply_ho_substitution_to_builtin(_, _, fail) = fail.
+apply_ho_substitution_to_builtin(F, Subst, not(B)) = not(apply_ho_substitution_to_builtin(F, Subst, B)).
 apply_ho_substitution_to_builtin(F, Subst, equals(TermA, TermB)) =
     equals(F(TermA, Subst), F(TermB, Subst)).
 apply_ho_substitution_to_builtin(F, Subst, unify(TermA, TermB)) =
@@ -753,6 +759,7 @@ chr_goal_vars(builtin(equals(TermA, TermB))) = set(vars(TermA)) `set.union` set(
 chr_goal_vars(builtin(unify(TermA, TermB))) = set(vars(TermA)) `set.union` set(vars(TermB)).
 chr_goal_vars(builtin(true)) = set.init.
 chr_goal_vars(builtin(fail)) = set.init.
+chr_goal_vars(builtin(not(B))) = chr_goal_vars(builtin(B)).
 chr_goal_vars(chr(chr(_, Terms))) = set(list.condense(list.map(vars, Terms))).
 
 %------------------------------------------------------------------------------%

@@ -284,6 +284,13 @@ parse_builtin_constraint(functor(Const, Args, Context), Result) :-
         Result = ok(fail)
     ; Const = atom("="), Args = [TermA, TermB] ->
         Result = ok(unify(TermA, TermB))
+    ; Const = atom("not"), Args = [TermA] ->
+        parse_builtin_constraint(TermA, ResultA),
+        ( ResultA = ok(BuiltinA),
+            Result = ok(not(BuiltinA))
+        ; ResultA = error(_, _),
+            Result = ResultA
+        )
     ;
         Result = error(Context, "unknown builtin constraint")
     ).
@@ -315,6 +322,10 @@ output_constraint(_Varset, builtin(true), !IO) :-
     io.write_string("true", !IO).
 output_constraint(_Varset, builtin(fail), !IO) :-
     io.write_string("fail", !IO).
+output_constraint(Varset, builtin(not(B)), !IO) :-
+    io.write_string("not(", !IO),
+    output_constraint(Varset, builtin(B), !IO),
+    io.write_string(")", !IO).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
@@ -347,6 +358,11 @@ output_chr_goal_2(Indent, Varset, disj(Cs), !IO) :-
         output_indent(Indent, !IO),
         io.write_string(")", !IO)
     ).
+output_chr_goal_2(Indent, Varset, builtin(not(B)), !IO) :-
+    output_indent(Indent, !IO),
+    io.write_string("not(", !IO),
+    output_chr_goal_2(Indent, Varset, builtin(B), !IO),
+    io.write_string(")", !IO).
 output_chr_goal_2(Indent, _Varset, builtin(fail), !IO) :-
     output_indent(Indent, !IO),
     io.write_string("true", !IO).
