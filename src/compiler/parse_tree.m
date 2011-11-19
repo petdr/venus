@@ -328,7 +328,7 @@ parse_object(Varset, Term, ObjectContext, Result) :-
         ( parse_sym_name(NameTerm, SymName, TermArgs) ->
             TVarset = coerce(Varset),
             Extends = sym_name(["System"], "Object"),
-            Implments = [],
+            Implements = [],
             (
                 var_list(TermArgs, TypeVars)
             ->
@@ -336,7 +336,7 @@ parse_object(Varset, Term, ObjectContext, Result) :-
             ;
                 TypeParams = []
             ),
-            ObjectDefn = object_defn(SymName, TypeParams, TVarset, Extends, Implments, [], [], ObjectContext),
+            ObjectDefn = object_defn(SymName, TypeParams, TVarset, Extends, Implements, [], [], ObjectContext),
             Result = ok(object_defn(ObjectDefn))
         ;
             Result = error([simple_error_msg(ObjectContext, "Unable to parse the object")])
@@ -356,12 +356,14 @@ parse_object(Varset, Term, ObjectContext, Result) :-
 :- pred parse_object_name(term::in, term.context::in, parse_result(o)::out) is det.
 
 parse_object_name(Term, NameContext, Result) :-
-    ( Term = term.functor(atom("extends"), [TermA, TermB], _Context) ->
-    ; Term = term.functor(atom("implements"), [TermA, TermB], _Context) ->
+    ( Term = term.functor(atom("extends"), [_TermA, _TermB], Context) ->
+        Result = error([simple_error_msg(Context, "XXX parse extends NYI")])
+    ; Term = term.functor(atom("implements"), [_TermA, _TermB], Context) ->
+        Result = error([simple_error_msg(Context, "XXX parse implements NYI")])
     ;
         ( parse_sym_name(Term, SymName, TermArgs) ->
-            Extends = sym_name(["System"], "Object"),
-            Implments = [],
+            Extends = prog_object(sym_name(["System"], "Object"), []),
+            Implements = [],
             (
                 var_list(TermArgs, TypeVars)
             ->
@@ -377,16 +379,16 @@ parse_object_name(Term, NameContext, Result) :-
 
 :- pred parse_object_name(prog_object::in, list(prog_object)::in, term::in, term.context::in, parse_result(o)::out) is det.
 
-parse_object_name(Extends, Implments, Term, Context, Result) :-
+parse_object_name(Extends, Implements, Term, Context, Result) :-
     ( parse_sym_name(Term, SymName, TermArgs) ->
         (
             var_list(TermArgs, TypeVars)
         ->
-            TypeParams = list.map(func(V) = type_variable(V), TypeVars)
+            TypeParams = list.map(func(V) = type_variable(V), TypeVars),
+            Result = ok(o(SymName, TypeParams, Extends, Implements))
         ;
             Result = error([simple_error_msg(Context, "Expect only type variables for the object name")])
-        ),
-        Result = ok(o(SymName, TypeParams, Extends, Implements))
+        )
     ;
         Result = error([simple_error_msg(Context, "Unable to parse the object name")])
     ).
