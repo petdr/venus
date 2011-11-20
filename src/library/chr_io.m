@@ -22,11 +22,11 @@
     ;       rule(chr_rule(T))
     .
 
-:- pred read_chr(chr_io.read_result(goal_or_rule(T))::out, io::di, io::uo) is det.
+:- pred read_chr(B::in, chr_io.read_result(goal_or_rule(T))::out, io::di, io::uo) is det <= builtin(B).
 
-:- pred read_chr_goal(chr_io.read_result({varset(T), chr_goal(T)})::out, io::di, io::uo) is det.
+:- pred read_chr_goal(B::in, chr_io.read_result({varset(T), chr_goal(T)})::out, io::di, io::uo) is det <= builtin(B).
 
-:- pred read_chr_rule(chr_io.read_result(chr_rule(T))::out, io::di, io::uo) is det.
+:- pred read_chr_rule(B::in, chr_io.read_result(chr_rule(T))::out, io::di, io::uo) is det <= builtin(B).
 
 %------------------------------------------------------------------------------%
 
@@ -35,9 +35,9 @@
     ;       error(term.context, string)
     .
 
-:- pred parse_chr_goal(term(T)::in, parse_result(chr_goal(T))::out) is det.
+:- pred parse_chr_goal(B::in, term(T)::in, parse_result(chr_goal(T))::out) is det <= builtin(B).
 
-:- pred parse_chr_rule(varset(T)::in, term(T)::in, parse_result(chr_rule(T))::out) is det.
+:- pred parse_chr_rule(B::in, varset(T)::in, term(T)::in, parse_result(chr_rule(T))::out) is det <= builtin(B).
 
 %------------------------------------------------------------------------------%
 
@@ -59,14 +59,14 @@
 :- import_module parser.
 :- import_module term_io.
 
-read_chr(Result, !IO) :-
+read_chr(B, Result, !IO) :-
     parser.read_term_with_op_table(chr_op_table, ReadResult, !IO),
     ( ReadResult = term(Varset, Term),
-        parse_chr_rule(Varset, Term, RuleResult),
+        parse_chr_rule(B, Varset, Term, RuleResult),
         ( RuleResult = ok(Rule),
             Result = ok(rule(Rule))
         ; RuleResult = error(_, _),
-            parse_chr_goal(Term, GoalResult),
+            parse_chr_goal(B, Term, GoalResult),
             ( GoalResult = ok(Goal),
                 Result = ok(goal(Varset, Goal))
             ; GoalResult = error(C, Err),
@@ -81,10 +81,10 @@ read_chr(Result, !IO) :-
     ).
 
 
-read_chr_goal(Result, !IO) :-
+read_chr_goal(B, Result, !IO) :-
     parser.read_term_with_op_table(chr_op_table, ReadResult, !IO),
     ( ReadResult = term(Varset, Term),
-        parse_chr_goal(Term, GoalResult),
+        parse_chr_goal(B, Term, GoalResult),
         ( GoalResult = ok(Goal),
             Result = ok({Varset, Goal})
         ; GoalResult = error(Context, Err),
@@ -97,10 +97,10 @@ read_chr_goal(Result, !IO) :-
         Result = eof
     ).
 
-read_chr_rule(Result, !IO) :-
+read_chr_rule(B, Result, !IO) :-
     parser.read_term_with_op_table(chr_op_table, ReadResult, !IO),
     ( ReadResult = term(Varset, Term),
-        parse_chr_rule(Varset, Term, RuleResult),
+        parse_chr_rule(B, Varset, Term, RuleResult),
         ( RuleResult = ok(Rule),
             Result = ok(Rule)
         ; RuleResult = error(Context, Err),
@@ -115,15 +115,15 @@ read_chr_rule(Result, !IO) :-
 
 %------------------------------------------------------------------------------%
 
-parse_chr_goal(variable(_V, C), error(C, "Unexpected variable")).
-parse_chr_goal(functor(Const, Args, Context), Result) :-
+parse_chr_goal(_, variable(_V, C), error(C, "Unexpected variable")).
+parse_chr_goal(B, functor(Const, Args, Context), Result) :-
     ( Const = atom(","), Args = [TermA, TermB] ->
-        parse_chr_goal(TermA, ResultA),
-        parse_chr_goal(TermB, ResultB),
+        parse_chr_goal(B, TermA, ResultA),
+        parse_chr_goal(B, TermB, ResultB),
         Result = combine_results(to_conj, ResultA, ResultB)
     ; Const = atom(";"), Args = [TermA, TermB] ->
-        parse_chr_goal(TermA, ResultA),
-        parse_chr_goal(TermB, ResultB),
+        parse_chr_goal(B, TermA, ResultA),
+        parse_chr_goal(B, TermB, ResultB),
         Result = combine_results(to_disj, ResultA, ResultB)
     ; Const = atom("true"), Args = [] ->
         Result = ok(builtin(true))
@@ -131,6 +131,8 @@ parse_chr_goal(functor(Const, Args, Context), Result) :-
         Result = ok(builtin(fail))
     ; Const = atom("="), Args = [TermA, TermB] ->
         Result = ok(builtin(unify(TermA, TermB)))
+    ; Const = atom(Atom), recognized_builtin(B, Atom, list.length(Args)) ->
+        Result = ok(builtin(custom(Atom, Args)))
     ; Const = atom(Name) ->
         Result = ok(chr(chr(Name, Args)))
     ;
@@ -157,8 +159,8 @@ to_disj(GoalA, GoalB) = disj(Goals) :-
         
 %------------------------------------------------------------------------------%
 
-parse_chr_rule(_Varset, variable(_V, C), error(C, "Unexpected variable")).
-parse_chr_rule(Varset, Term @ functor(Const, Args, _Context), Result) :-
+parse_chr_rule(_, _Varset, variable(_V, C), error(C, "Unexpected variable")).
+parse_chr_rule(B, Varset, Term @ functor(Const, Args, _Context), Result) :-
     ( Const = atom("@"), Args = [RuleName, Rule0] ->
         parse_rule_name(RuleName, ResultA),
         Rule = Rule0
@@ -166,7 +168,7 @@ parse_chr_rule(Varset, Term @ functor(Const, Args, _Context), Result) :-
         ResultA = ok(no_name),
         Rule = Term
     ),
-    parse_rule(Rule, ResultB),
+    parse_rule(B, Rule, ResultB),
     Result = combine_results(to_chr_rule(Varset), ResultA, ResultB).
 
 :- pred parse_rule_name(term(T)::in, parse_result(chr_name)::out) is det.
@@ -185,16 +187,17 @@ to_chr_rule(Varset, Name, {Prop, Simp, Guard, Body}) = chr_rule(Name, Prop, Simp
 
 :- type unnamed_rule(T) == {chr_constraints(T), chr_constraints(T), builtin_constraints(T), constraints(T)}.
 
-:- pred parse_rule(term(T)::in, parse_result(unnamed_rule(T))::out) is det.  
-parse_rule(variable(_V, C), error(C, "Unexpected variable")).
-parse_rule(functor(Const, Args, Context), Result) :-
+:- pred parse_rule(B::in, term(T)::in, parse_result(unnamed_rule(T))::out) is det <= builtin(B).
+
+parse_rule(_, variable(_V, C), error(C, "Unexpected variable")).
+parse_rule(B, functor(Const, Args, Context), Result) :-
     ( Const = atom("<=>"), Args = [TermA, TermB] ->
         parse_simpgation_rule_head(TermA, ResultA),
-        parse_guarded_rhs(TermB, ResultB),
+        parse_guarded_rhs(B, TermB, ResultB),
         Result = combine_results(to_simp_rule, ResultA, ResultB)
     ; Const = atom("==>"), Args = [TermA, TermB] ->
         parse_conj(parse_chr_constraint, TermA, ResultA),
-        parse_guarded_rhs(TermB, ResultB),
+        parse_guarded_rhs(B, TermB, ResultB),
         Result = combine_results(to_prop_rule, ResultA, ResultB)
     ;
         Result = error(Context, "Expected <=> or ==>")
@@ -222,19 +225,19 @@ parse_simpgation_rule_head(Term @ functor(Const, Args, _Context), Result) :-
     parse_conj(parse_chr_constraint, SimpTerm, ResultB),
     Result = combine_results(func(A, B) = {A, B}, ResultA, ResultB).
 
-:- pred parse_guarded_rhs(term(T)::in, parse_result({builtin_constraints(T), constraints(T)})::out) is det.
+:- pred parse_guarded_rhs(B::in, term(T)::in, parse_result({builtin_constraints(T), constraints(T)})::out) is det <= builtin(B).
 
-parse_guarded_rhs(variable(_V, C), error(C, "Unexpected variable")).
-parse_guarded_rhs(Term @ functor(Const, Args, _Context), Result) :-
+parse_guarded_rhs(_, variable(_V, C), error(C, "Unexpected variable")).
+parse_guarded_rhs(B, Term @ functor(Const, Args, _Context), Result) :-
     ( Const = atom("|"), Args = [TermA, TermB] ->
-        parse_conj(parse_builtin_constraint, TermA, ResultA),
+        parse_conj(parse_builtin_constraint(B), TermA, ResultA),
         ConstraintsTerm = TermB
     ;
         ResultA = ok([]),
         ConstraintsTerm = Term
     ),
-    parse_conj(parse_constraint, ConstraintsTerm, ResultB),
-    Result = combine_results(func(A, B) = {A, B}, ResultA, ResultB).
+    parse_conj(parse_constraint(B), ConstraintsTerm, ResultB),
+    Result = combine_results(func(X, Y) = {X, Y}, ResultA, ResultB).
 
 :- pred parse_conj(pred(term(T), parse_result(U))::pred(in, out) is det, term(T)::in, parse_result(list(U))::out) is det.
 
@@ -249,10 +252,10 @@ parse_conj(ParseOneItem, Term @ functor(Const, Args, _Context), Result) :-
         Result = combine_results(list.cons, Result0, ok([]))
     ).
 
-:- pred parse_constraint(term(T)::in, parse_result(constraint(T))::out) is det.
+:- pred parse_constraint(B::in, term(T)::in, parse_result(constraint(T))::out) is det <= builtin(B).
 
-parse_constraint(Term, Result) :-
-    parse_builtin_constraint(Term, ResultBuiltin),
+parse_constraint(B, Term, Result) :-
+    parse_builtin_constraint(B, Term, ResultBuiltin),
     ( ResultBuiltin = ok(Builtin),
         Result = ok(builtin(Builtin))
     ; ResultBuiltin = error(_, _),
@@ -274,10 +277,10 @@ parse_chr_constraint(functor(Const, Args, Context), Result) :-
         Result = error(Context, "expected atom with possibly arguments")
     ).
 
-:- pred parse_builtin_constraint(term(T)::in, parse_result(builtin_constraint(T))::out) is det.
+:- pred parse_builtin_constraint(B::in, term(T)::in, parse_result(builtin_constraint(T))::out) is det <= builtin(B).
 
-parse_builtin_constraint(variable(_V, C), error(C, "Unexpected variable")).
-parse_builtin_constraint(functor(Const, Args, Context), Result) :-
+parse_builtin_constraint(_, variable(_V, C), error(C, "Unexpected variable")).
+parse_builtin_constraint(B, functor(Const, Args, Context), Result) :-
     ( Const = atom("true"), Args = [] ->
         Result = ok(true)
     ; Const = atom("fail"), Args = [] ->
@@ -285,12 +288,14 @@ parse_builtin_constraint(functor(Const, Args, Context), Result) :-
     ; Const = atom("="), Args = [TermA, TermB] ->
         Result = ok(unify(TermA, TermB))
     ; Const = atom("not"), Args = [TermA] ->
-        parse_builtin_constraint(TermA, ResultA),
+        parse_builtin_constraint(B, TermA, ResultA),
         ( ResultA = ok(BuiltinA),
             Result = ok(not(BuiltinA))
         ; ResultA = error(_, _),
             Result = ResultA
         )
+    ; Const = atom(Atom), recognized_builtin(B, Atom, list.length(Args)) ->
+        Result = ok(custom(Atom, Args))
     ;
         Result = error(Context, "unknown builtin constraint")
     ).
@@ -326,6 +331,11 @@ output_constraint(Varset, builtin(not(B)), !IO) :-
     io.write_string("not(", !IO),
     output_constraint(Varset, builtin(B), !IO),
     io.write_string(")", !IO).
+output_constraint(Varset, builtin(custom(Name, Args)), !IO) :-
+    io.write_string(Name, !IO),
+    io.write_string("(", !IO),
+    io.write_list(Args, ",", term_io.write_term(Varset), !IO),
+    io.write_string(")", !IO).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
@@ -358,14 +368,21 @@ output_chr_goal_2(Indent, Varset, disj(Cs), !IO) :-
         output_indent(Indent, !IO),
         io.write_string(")", !IO)
     ).
+output_chr_goal_2(Indent, Varset, builtin(custom(Name, Args)), !IO) :-
+    output_indent(Indent, !IO),
+    io.write_string(Name, !IO),
+    io.write_string("(", !IO),
+    io.write_list(Args, ",", term_io.write_term(Varset), !IO),
+    io.write_string(")", !IO).
 output_chr_goal_2(Indent, Varset, builtin(not(B)), !IO) :-
     output_indent(Indent, !IO),
     io.write_string("not(", !IO),
-    output_chr_goal_2(Indent, Varset, builtin(B), !IO),
+    output_chr_goal_2(Indent+1, Varset, builtin(B), !IO),
+    output_indent(Indent, !IO),
     io.write_string(")", !IO).
 output_chr_goal_2(Indent, _Varset, builtin(fail), !IO) :-
     output_indent(Indent, !IO),
-    io.write_string("true", !IO).
+    io.write_string("fail", !IO).
 output_chr_goal_2(Indent, _Varset, builtin(true), !IO) :-
     output_indent(Indent, !IO),
     io.write_string("true", !IO).

@@ -26,11 +26,12 @@ main(!IO) :-
 :- pred main_2(list(chr_rule)::in, list(chr_rule)::out, io::di, io::uo) is det.
 
 main_2(!Rules, !IO) :-
-    read_chr(Result, !IO),
+    B = no_custom_builtins,
+    read_chr(B, Result, !IO),
     ( Result = ok(GoalOrRule),
         ( GoalOrRule = goal(Varset, Goal),
             io.write_string("\nExecuting goal\n", !IO),
-            solutions(solve(list.reverse(!.Rules), Varset, Goal), Solutions),
+            solutions(solve(B, list.reverse(!.Rules), Varset, Goal), Solutions),
             list.foldl(output_solution(Varset), Solutions, !IO),
             io.nl(!IO)
         ; GoalOrRule = rule(Rule),

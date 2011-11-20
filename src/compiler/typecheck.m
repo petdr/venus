@@ -147,7 +147,7 @@ typecheck_pred(HLDS, !Pred, Errors) :-
             !TCI ^ tvarset := varset.ensure_unique_names(varset.vars(TVarset0), "X", TVarset0),
 
             Rules = [],
-            solutions(solve(Rules, !.TCI ^ tvarset, Constraint), Solns),
+            solutions(solve(no_custom_builtins, Rules, !.TCI ^ tvarset, Constraint), Solns),
             trace [io(!IO)] (
                 io.write_string("*** Goal ***\n", !IO),
                 output_chr_goal(!.TCI ^ tvarset, Constraint, !IO),

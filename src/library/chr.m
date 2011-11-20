@@ -22,7 +22,7 @@
     % returns the set of constraints that are entailed by solving the Goal with the associated
     % CHR rules.  The varset is the varset associated with the goal.
     %
-:- pred solve(list(chr_rule(T))::in, varset(T)::in, chr_goal(T)::in, list(constraint(T))::out) is nondet.
+:- pred solve(B::in, list(chr_rule(T))::in, varset(T)::in, chr_goal(T)::in, list(constraint(T))::out) is nondet <= builtin(B).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
@@ -80,13 +80,19 @@
     ;       true
     ;       fail
     ;       not(builtin_constraint(T))
+    ;       custom(string, list(term(T)))
     .
 
 :- typeclass builtin(B) where [
     pred recognized_builtin(B::in, string::in, int::in) is semidet,
-    pred solve(B::in, string::in, list(term(T))::in, constraint_store(T)::in, constraint_store(T)::out) is semidet,
+    pred solve_step(B::in, string::in, list(term(T))::in, constraint_store(T)::in, constraint_store(T)::out) is semidet,
     pred check_guard(B::in, string::in, list(term(T))::in, varset(T)::in, varset(T)::out) is semidet
 ].
+
+:- type no_custom_builtins
+    ---> no_custom_builtins.
+
+:- instance builtin(no_custom_builtins).
 
 %------------------------------------------------------------------------------%
 
@@ -205,9 +211,9 @@
     --->    numbered(chr_constraint(T), int)
     .
 
-solve(Rules, Varset0, Goal, BuiltinConstraints ++ CHRConstraints) :-
+solve(B, Rules, Varset0, Goal, BuiltinConstraints ++ CHRConstraints) :-
     create_chr_program(Rules, Program),
-    solve_2(Program, Goal, constraint_store([], [], Varset0, set.init, 1), constraint_store(_, ChrStore, Varset, _, _)),
+    solve_2(B, Program, Goal, constraint_store([], [], Varset0, set.init, 1), constraint_store(_, ChrStore, Varset, _, _)),
 
         % XXX it would be nice to do more simplification
     list.filter_map(to_constraint(Varset), varset.vars(Varset), BuiltinConstraints),
@@ -323,24 +329,24 @@ normalize_chr_arg(Term0 @ functor(_, _, _), Term, !Guard, !Varset, !SeenVars) :-
 
     % solve_2 implements the search part of solving the constraints.
     % The search is standard prolog depth-first search.
-:- pred solve_2(chr_program(T)::in, chr_goal(T)::in, constraint_store(T)::in, constraint_store(T)::out) is nondet.
+:- pred solve_2(B::in, chr_program(T)::in, chr_goal(T)::in, constraint_store(T)::in, constraint_store(T)::out) is nondet <= builtin(B).
 
-solve_2(_Program, conj([]), !Store).
-solve_2(Program, conj([G | Gs]), !Store) :-
-    solve_2(Program, G, !Store),
-    solve_2(Program, conj(Gs), !Store).
-solve_2(Program, disj([G | Gs]), !Store) :-
+solve_2(_, _Program, conj([]), !Store).
+solve_2(B, Program, conj([G | Gs]), !Store) :-
+    solve_2(B, Program, G, !Store),
+    solve_2(B, Program, conj(Gs), !Store).
+solve_2(B, Program, disj([G | Gs]), !Store) :-
     (
-        solve_2(Program, G, !Store)
+        solve_2(B, Program, G, !Store)
     ;
-        solve_2(Program, disj(Gs), !Store)
+        solve_2(B, Program, disj(Gs), !Store)
     ).
-solve_2(Program, builtin(B), !Store) :-
-    add_constraint(builtin(B), !Store),
-    solve_chr(Program, !Store).
-solve_2(Program, chr(C), !Store) :-
+solve_2(B, Program, builtin(BC), !Store) :-
+    add_constraint(builtin(BC), !Store),
+    solve_chr(B, Program, !Store).
+solve_2(B, Program, chr(C), !Store) :-
     add_constraint(chr(C), !Store),
-    solve_chr(Program, !Store).
+    solve_chr(B, Program, !Store).
 
 :- pred add_constraint(constraint(T)::in, constraint_store(T)::in, constraint_store(T)::out) is det.
 
@@ -355,12 +361,12 @@ add_constraint(Constraint, !Store) :-
     % See "Compilation of Constraint Handling Rules" by Gregory J. Duck, section 3.3
     % for a description fo this state machine.
     %
-:- pred solve_chr(chr_program(T)::in, constraint_store(T)::in, constraint_store(T)::out) is semidet.
+:- pred solve_chr(B::in, chr_program(T)::in, constraint_store(T)::in, constraint_store(T)::out) is semidet <= builtin(B).
 
-solve_chr(Program, !Store) :-
+solve_chr(B, Program, !Store) :-
     ( head_execution_stack(Head, !Store) ->
         ( Head = constraint(builtin(Builtin)),
-            solve_step(Builtin, !Store)
+            solve_step(B, Builtin, !Store)
         ; Head = constraint(chr(C)),
             activate_step(C, !Store)
         ; Head = inactive(Inactive, I),
@@ -368,15 +374,15 @@ solve_chr(Program, !Store) :-
         ; Head = active(Active, I, J),
             ( drop_step(Program, J, !Store) ->
                 true
-            ; simplify_step(Program, Active, I, J, !Store) ->
+            ; simplify_step(B, Program, Active, I, J, !Store) ->
                 true
-            ; propagate_step(Program, Active, I, J, !Store) ->
+            ; propagate_step(B, Program, Active, I, J, !Store) ->
                 true
             ;
                 default_step(Active, I, J, !Store)
             )
         ),
-        solve_chr(Program, !Store)
+        solve_chr(B, Program, !Store)
     ;
         % There is nothing left on the execution stack, so we're finished.
         true
@@ -392,19 +398,21 @@ head_execution_stack(Head, !Store) :-
     % If the builtin constraint modifies the builtin constraint store, we wake
     % any CHR constraints which can now fire.
     %
-:- pred solve_step(builtin_constraint(T)::in, constraint_store(T)::in, constraint_store(T)::out) is semidet.
+:- pred solve_step(B::in, builtin_constraint(T)::in, constraint_store(T)::in, constraint_store(T)::out) is semidet <= builtin(B).
 
-solve_step(not(B), !Store) :-
-    not solve_step(B, !.Store, _).
-solve_step(true, !Store).
-solve_step(fail, !Store) :-
+solve_step(B, custom(Name, Args), !Store) :-
+    solve_step(B, Name, Args, !Store).
+solve_step(B, not(G), !Store) :-
+    not solve_step(B, G, !.Store, _).
+solve_step(_, true, !Store).
+solve_step(_, fail, !Store) :-
     fail.
-solve_step(equals(TermA0, TermB0), !Store) :-
+solve_step(_, equals(TermA0, TermB0), !Store) :-
     Bindings = varset.get_bindings(!.Store ^ b),
     apply_rec_substitution(TermA0, Bindings, TermA),
     apply_rec_substitution(TermB0, Bindings, TermB),
     terms_equal(TermA, TermB).
-solve_step(unify(TermA, TermB), !Store) :-
+solve_step(_, unify(TermA, TermB), !Store) :-
     some [!Varset] (
         !:Varset = !.Store ^ b,
         unify_term(TermA, TermB, varset.get_bindings(!.Varset), Bindings),
@@ -442,19 +450,19 @@ drop_step(Program, J, !Store) :-
         % from the stack, so we have to do nothing here.
     true.
 
-:- pred simplify_step(chr_program(T)::in,
-    chr_constraint(T)::in, int::in, int::in, constraint_store(T)::in, constraint_store(T)::out) is semidet.
+:- pred simplify_step(B::in, chr_program(T)::in,
+    chr_constraint(T)::in, int::in, int::in, constraint_store(T)::in, constraint_store(T)::out) is semidet <= builtin(B).
 
-simplify_step(Program, ActiveConstraint, I, J, !Store) :-
+simplify_step(B, Program, ActiveConstraint, I, J, !Store) :-
     find_jth_occurence(Program, !.Store ^ b, J, delete, Occurence),
-    execute_occurence(Program, ActiveConstraint, I, J, Occurence, !Store).
+    execute_occurence(B, Program, ActiveConstraint, I, J, Occurence, !Store).
 
-:- pred propagate_step(chr_program(T)::in,
-    chr_constraint(T)::in, int::in, int::in, constraint_store(T)::in, constraint_store(T)::out) is semidet.
+:- pred propagate_step(B::in, chr_program(T)::in,
+    chr_constraint(T)::in, int::in, int::in, constraint_store(T)::in, constraint_store(T)::out) is semidet <= builtin(B).
 
-propagate_step(Program, ActiveConstraint, I, J, !Store) :-
+propagate_step(B, Program, ActiveConstraint, I, J, !Store) :-
     find_jth_occurence(Program, !.Store ^ b, J, keep, Occurence),
-    execute_occurence(Program, ActiveConstraint, I, J, Occurence, !Store).
+    execute_occurence(B, Program, ActiveConstraint, I, J, Occurence, !Store).
 
     % The default step moves the occurence.
 :- pred default_step(chr_constraint(T)::in, int::in, int::in, constraint_store(T)::in, constraint_store(T)::out) is det.
@@ -474,10 +482,10 @@ find_jth_occurence(Program, Varset, J, Action, Occurence) :-
     
 %------------------------------------------------------------------------------%
 
-:- pred execute_occurence(chr_program(T)::in, chr_constraint(T)::in, int::in, int::in, occurence(T)::in,
-    constraint_store(T)::in, constraint_store(T)::out) is semidet.
+:- pred execute_occurence(B::in, chr_program(T)::in, chr_constraint(T)::in, int::in, int::in, occurence(T)::in,
+    constraint_store(T)::in, constraint_store(T)::out) is semidet <= builtin(B).
 
-execute_occurence(_Program, ActiveConstraint, I, J, Occurence, !Store) :-
+execute_occurence(B, _Program, ActiveConstraint, I, J, Occurence, !Store) :-
 
         % CHR rule execution is a committed choice non determinstic act so use
         % promise_equivalent_solutions to find the first solution which causes
@@ -502,7 +510,7 @@ execute_occurence(_Program, ActiveConstraint, I, J, Occurence, !Store) :-
 
                 % Check that the guard evaluates to true
             RenamedGuard = list.map(apply_rec_substitution_to_builtin(!.Subst), Occurence ^ occ_guard),
-            check_guard(!.Store ^ b, RenamedGuard),
+            check_guard(B, !.Store ^ b, RenamedGuard),
 
                 % Rename the body of the rule and prepare it for addition back into the execution
                 % stack.
@@ -598,31 +606,33 @@ match_head_to_store(HeadTerm, StoreTerm, !Subst) :-
 
 %------------------------------------------------------------------------------%
 
-:- pred check_guard(varset(T)::in, builtin_constraints(T)::in) is semidet.
+:- pred check_guard(B::in, varset(T)::in, builtin_constraints(T)::in) is semidet <= builtin(B).
 
-check_guard(Varset, Builtins) :-
-    check_guard_2(Builtins, Varset, _).
+check_guard(B, Varset, Builtins) :-
+    check_guard_2(B, Builtins, Varset, _).
 
-:- pred check_guard_2(builtin_constraints(T)::in, varset(T)::in, varset(T)::out) is semidet.
+:- pred check_guard_2(B::in, builtin_constraints(T)::in, varset(T)::in, varset(T)::out) is semidet <= builtin(B).
 
-check_guard_2([], !Varset).
-check_guard_2([C | Cs], !Varset) :-
-    check_guard_3(C, !Varset),
-    check_guard_2(Cs, !Varset).
+check_guard_2(_, [], !Varset).
+check_guard_2(B, [C | Cs], !Varset) :-
+    check_guard_3(B, C, !Varset),
+    check_guard_2(B, Cs, !Varset).
 
-:- pred check_guard_3(builtin_constraint(T)::in, varset(T)::in, varset(T)::out) is semidet.
+:- pred check_guard_3(B::in, builtin_constraint(T)::in, varset(T)::in, varset(T)::out) is semidet <= builtin(B).
 
-check_guard_3(not(B), !Varset) :-
-    not check_guard_3(B, !.Varset, _).
-check_guard_3(true, !Varset) :-
+check_guard_3(B, custom(Name, Args), !Varset) :-
+    check_guard(B, Name, Args, !Varset).
+check_guard_3(B, not(G), !Varset) :-
+    not check_guard_3(B, G, !.Varset, _).
+check_guard_3(_, true, !Varset) :-
     true.
-check_guard_3(fail, !Varset) :-
+check_guard_3(_, fail, !Varset) :-
     fail.
-check_guard_3(equals(TermA0, TermB0), !Varset) :-
+check_guard_3(_, equals(TermA0, TermB0), !Varset) :-
     apply_rec_substitution(TermA0, varset.get_bindings(!.Varset), TermA),
     apply_rec_substitution(TermB0, varset.get_bindings(!.Varset), TermB),
     terms_equal(TermA, TermB).
-check_guard_3(unify(TermA, TermB), !Varset) :-
+check_guard_3(_, unify(TermA, TermB), !Varset) :-
         % XXX I'm not sure if unification ever makes sense in a guard,
         % should we throw an exception here?
     unify_term(TermA, TermB, varset.get_bindings(!.Varset), Bindings),
@@ -726,6 +736,8 @@ apply_ho_substitution_to_builtin(F, Subst, equals(TermA, TermB)) =
     equals(F(TermA, Subst), F(TermB, Subst)).
 apply_ho_substitution_to_builtin(F, Subst, unify(TermA, TermB)) =
     unify(F(TermA, Subst), F(TermB, Subst)).
+apply_ho_substitution_to_builtin(F, Subst, custom(Atom, Terms)) =
+    custom(Atom, list.map(func(T) = F(T, Subst), Terms)).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
@@ -766,6 +778,7 @@ chr_goal_vars(builtin(unify(TermA, TermB))) = set(vars(TermA)) `set.union` set(v
 chr_goal_vars(builtin(true)) = set.init.
 chr_goal_vars(builtin(fail)) = set.init.
 chr_goal_vars(builtin(not(B))) = chr_goal_vars(builtin(B)).
+chr_goal_vars(builtin(custom(_, Terms))) = set.union_list(list.map(func(T) = set(vars(T)), Terms)).
 chr_goal_vars(chr(chr(_, Terms))) = set(list.condense(list.map(vars, Terms))).
 
 %------------------------------------------------------------------------------%
@@ -811,6 +824,15 @@ output_chr_store_elem(Varset, numbered(C, I), !IO) :-
 
 output_chr_constraint(Varset, C, !IO) :-
     output_constraint(Varset, chr(C), !IO).
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
+:- instance builtin(no_custom_builtins) where [
+    recognized_builtin(no_custom_builtins, _, _) :- fail,
+    solve_step(no_custom_builtins, _, _, !Store) :- fail,
+    check_guard(no_custom_builtins, _, _, !Varset) :- fail
+].
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
