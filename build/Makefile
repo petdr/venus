@@ -2,11 +2,11 @@ GRADE=asm_fast.gc
 JOBS=1
 LINE_WIDTH=160
 MERCURY_STD_LIB_DIR=
-DEFAULT_TARGET=vc
+DEFAULT_TARGET=vc test_chr
 
 -include Make.params
 
-MMC_MAKE_OPTS=-j$(JOBS) --grade $(GRADE) --use-grade-subdirs --halt-at-warn --max-error-line-width $(LINE_WIDTH)
+MMC_MAKE_OPTS=-j$(JOBS) --grade $(GRADE) --use-grade-subdirs --halt-at-warn --max-error-line-width $(LINE_WIDTH) --output-compile-error-lines 10000
 
 .PHONY: default
 default: $(DEFAULT_TARGET)

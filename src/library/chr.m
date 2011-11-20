@@ -82,6 +82,12 @@
     ;       not(builtin_constraint(T))
     .
 
+:- typeclass builtin(B) where [
+    pred recognized_builtin(B::in, string::in, int::in) is semidet,
+    pred solve(B::in, string::in, list(term(T))::in, constraint_store(T)::in, constraint_store(T)::out) is semidet,
+    pred check_guard(B::in, string::in, list(term(T))::in, varset(T)::in, varset(T)::out) is semidet
+].
+
 %------------------------------------------------------------------------------%
 
 :- type chr_goal == chr_goal(generic).
@@ -389,7 +395,7 @@ head_execution_stack(Head, !Store) :-
 :- pred solve_step(builtin_constraint(T)::in, constraint_store(T)::in, constraint_store(T)::out) is semidet.
 
 solve_step(not(B), !Store) :-
-    not solve_step(B, !Store).
+    not solve_step(B, !.Store, _).
 solve_step(true, !Store).
 solve_step(fail, !Store) :-
     fail.
@@ -607,7 +613,7 @@ check_guard_2([C | Cs], !Varset) :-
 :- pred check_guard_3(builtin_constraint(T)::in, varset(T)::in, varset(T)::out) is semidet.
 
 check_guard_3(not(B), !Varset) :-
-    not check_guard_3(B, !Varset).
+    not check_guard_3(B, !.Varset, _).
 check_guard_3(true, !Varset) :-
     true.
 check_guard_3(fail, !Varset) :-
